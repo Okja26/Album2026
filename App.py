@@ -43,23 +43,22 @@ def obtener_datos_usuario():
 
 def formulario_nueva_clave():
     st.markdown("### 🔐 Restablecer Contraseña")
-    st.write("Ingresa tu nueva contraseña para recuperar el acceso a tu cuenta.")
+    st.info("Ingresa tu nueva contraseña para recuperar el acceso total.")
     with st.form("reset_password_form"):
         n_pass = st.text_input("Nueva Contraseña", type="password")
         c_pass = st.text_input("Confirmar Contraseña", type="password")
-        submit = st.form_submit_button("Actualizar y Entrar", use_container_width=True)
+        submit = st.form_submit_button("Actualizar Contraseña", use_container_width=True)
         
         if submit:
             if n_pass == c_pass and len(n_pass) >= 6:
                 try:
                     supabase.auth.update_user({"password": n_pass})
-                    st.success("¡Contraseña actualizada! Ya puedes navegar.")
+                    st.success("¡Contraseña actualizada con éxito!")
                     st.balloons()
-                    # Limpiamos los parámetros de la URL para que no vuelva a aparecer
                     st.query_params.clear()
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"Error al actualizar: {e}")
             else:
                 st.error("Las contraseñas no coinciden o son muy cortas (mín. 6 caracteres).")
 
@@ -77,15 +76,15 @@ def login_seccion():
                     st.session_state.user = res.user
                     st.rerun()
             except:
-                st.sidebar.error("Usuario o contraseña incorrectos.")
+                st.sidebar.error("Credenciales incorrectas.")
         
         if st.sidebar.button("¿Olvidaste tu contraseña?"):
             if email:
                 try:
                     supabase.auth.reset_password_for_email(email)
-                    st.sidebar.success("Enlace de recuperación enviado.")
+                    st.sidebar.success("¡Enlace enviado! Revisa tu correo.")
                 except: st.sidebar.error("Error al enviar el correo.")
-            else: st.sidebar.warning("Ingresa tu correo para mandarte el link.")
+            else: st.sidebar.warning("Ingresa tu correo primero.")
 
     else:
         if st.sidebar.button("Crear Cuenta", use_container_width=True):
@@ -102,6 +101,10 @@ def login_seccion():
 
 def mostrar_resumen():
     st.title("🏆 Mi Progreso Global")
+    
+    # LEYENDA DE AYUDA PARA RECUPERACIÓN
+    st.caption("💡 *¿Viniste desde un correo de recuperación? Si no ves el formulario, ve a la sección de **Ajustes** en el menú lateral.*")
+    
     df_actual = obtener_datos_usuario()
     total_cromos = sum([v + (1 if k=='FWC' else 0) for k, v in CONFIG_ALBUM.items()])
     tengo_df = df_actual[df_actual['quantity'] > 0] if not df_actual.empty else pd.DataFrame()
@@ -132,7 +135,7 @@ def mostrar_seccion_dinamica(sigla):
 
 def mostrar_intercambios():
     st.title("🤝 Intercambios")
-    st.info(f"Tu código: `{st.session_state.user.id}`")
+    st.info(f"Tu código personal: `{st.session_state.user.id}`")
     amigo = st.text_input("Código de tu amigo:")
     if amigo and amigo != st.session_state.user.id:
         try:
@@ -147,32 +150,43 @@ def mostrar_intercambios():
 
 def mostrar_ajustes():
     st.title("⚙️ Ajustes de Cuenta")
-    st.warning("⚠️ Zona de Peligro")
-    conf = st.text_input("Escribe 'BORRAR TODO' para confirmar:")
+    formulario_nueva_clave()
+    st.divider()
+    st.warning("⚠️ Borrar datos limpiará tu álbum por completo.")
+    conf = st.text_input("Escribe 'BORRAR TODO' para confirmar eliminación:")
     if st.button("Eliminar mis datos"):
         if conf == "BORRAR TODO":
             supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute()
-            st.success("Datos eliminados. Cerrando sesión..."); st.rerun()
+            st.success("Datos eliminados."); st.rerun()
 
 # --- LÓGICA PRINCIPAL ---
 
-# Detectar modo recuperación desde el enlace del correo
-query_params = st.query_params
-is_recovery = "type" in query_params and query_params["type"] == "recovery"
+# 1. Truco de redirección para detectar '#' como '?'
+st.markdown("""
+    <script>
+    if(window.location.hash.includes('type=recovery')){
+        window.location.search = '?recovery=true';
+    }
+    </script>
+""", unsafe_allow_html=True)
 
+# 2. Manejo de sesión
 if 'user' not in st.session_state:
     login_seccion()
 else:
-    # Si viene del correo de recuperación, bloqueamos la app con el formulario
+    # Detectar si estamos en modo recuperación
+    query_params = st.query_params
+    is_recovery = query_params.get("recovery") == "true" or query_params.get("type") == "recovery"
+
     if is_recovery:
+        st.sidebar.warning("Modo Recuperación Activo")
         formulario_nueva_clave()
-        if st.button("Cancelar"):
+        if st.button("Regresar al Inicio"):
             st.query_params.clear()
             st.rerun()
     else:
-        # Navegación normal
-        st.sidebar.write(f"Sesión: {st.session_state.user.email}")
-        if st.sidebar.button("Salir"): 
+        st.sidebar.write(f"Usuario: {st.session_state.user.email}")
+        if st.sidebar.button("Cerrar Sesión"): 
             supabase.auth.sign_out(); del st.session_state.user; st.rerun()
         
         menu = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios", "⚙️ Ajustes"])
