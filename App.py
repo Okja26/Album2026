@@ -7,17 +7,15 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-# --- REFUERZO DE SESIÓN (ESTO QUITA EL DOBLE CLIC) ---
-# Intentamos obtener la sesión activa de Supabase antes de que Streamlit haga nada
+# --- REFUERZO DE SESIÓN ---
 if 'user' not in st.session_state:
-    try:
-        session = supabase.auth.get_session()
-        if session and session.user:
-            st.session_state.user = session.user
-        else:
-            st.session_state.user = None
-    except:
-        st.session_state.user = None
+    st.session_state.user = None
+
+# Intentar recuperar sesión existente al cargar la página
+if st.session_state.user is None:
+    session = supabase.auth.get_session()
+    if session and session.user:
+        st.session_state.user = session.user
 
 # 2. CONFIGURACIÓN DEL ÁLBUM
 CONFIG_ALBUM = {
@@ -36,7 +34,17 @@ COLORS = {"Falta": "#FF4B4B", "Tengo": "#14A8FD", "Repetida": "#51D153"}
 
 st.set_page_config(page_title="Danna's Panini Hub", layout="wide")
 
-# --- FUNCIONES DE BASE DE DATOS ---
+# --- FUNCIONES DE LÓGICA ---
+
+def realizar_login(email, password):
+    try:
+        res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        if res.user:
+            st.session_state.user = res.user
+            # El rerun aquí es clave después de asignar el usuario
+            st.rerun()
+    except:
+        st.sidebar.error("Credenciales incorrectas.")
 
 def actualizar_cantidad(codigo, sigla, nueva_cant):
     if nueva_cant < 0: return
@@ -45,47 +53,20 @@ def actualizar_cantidad(codigo, sigla, nueva_cant):
         supabase.table("user_stickers").upsert(data).execute()
         st.rerun()
     except Exception as e:
-        st.error(f"Error al actualizar: {e}")
+        st.error(f"Error: {e}")
 
-def obtener_datos_usuario():
-    res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
-    return pd.DataFrame(res.data)
-
-# --- COMPONENTES DE SEGURIDAD ---
-
-def formulario_nueva_clave():
-    st.markdown("### 🔐 Restablecer Contraseña")
-    with st.form("reset_pass_form_final", clear_on_submit=True):
-        n_pass = st.text_input("Nueva Contraseña", type="password")
-        c_pass = st.text_input("Confirmar Contraseña", type="password")
-        submit = st.form_submit_button("Actualizar Contraseña Ahora", use_container_width=True)
-        if submit:
-            if n_pass == c_pass and len(n_pass) >= 6:
-                try:
-                    supabase.auth.update_user({"password": n_pass})
-                    st.query_params.clear()
-                    st.success("¡Contraseña actualizada!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
-            else:
-                st.error("Las contraseñas no coinciden o son cortas.")
+# --- VISTAS ---
 
 def login_seccion():
     st.sidebar.title("🔐 Acceso")
     tipo = st.sidebar.radio("Acción", ["Iniciar Sesión", "Registrarse"])
-    email = st.sidebar.text_input("Correo")
-    password = st.sidebar.text_input("Contraseña", type="password")
+    email = st.sidebar.text_input("Correo", key="login_email")
+    password = st.sidebar.text_input("Contraseña", type="password", key="login_pass")
     
     if tipo == "Iniciar Sesión":
+        # Usamos el botón con la función de callback indirecta
         if st.sidebar.button("Entrar", use_container_width=True):
-            try:
-                res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                if res.user:
-                    st.session_state.user = res.user
-                    st.rerun() # ESTO AHORA SÍ FUNCIONARÁ AL PRIMER CLIC
-            except:
-                st.sidebar.error("Credenciales incorrectas.")
+            realizar_login(email, password)
         
         if st.sidebar.button("¿Olvidaste tu contraseña?"):
             if email:
@@ -101,11 +82,10 @@ def login_seccion():
             except Exception as e:
                 st.sidebar.error(f"Error: {e}")
 
-# --- VISTAS ---
-
 def mostrar_resumen():
     st.title("🏆 Mi Progreso Global")
-    df_actual = obtener_datos_usuario()
+    res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
+    df_actual = pd.DataFrame(res.data)
     total_cromos = sum([v + (1 if k=='FWC' else 0) for k, v in CONFIG_ALBUM.items()])
     tengo_df = df_actual[df_actual['quantity'] > 0] if not df_actual.empty else pd.DataFrame()
     m1, m2, m3 = st.columns(3)
@@ -135,7 +115,8 @@ def mostrar_intercambios():
     amigo = st.text_input("Código de tu amigo:")
     if amigo and amigo != st.session_state.user.id:
         try:
-            mis_tengo = set(obtener_datos_usuario().query("quantity > 0")['sticker_code'])
+            res_yo = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
+            mis_tengo = set(pd.DataFrame(res_yo.data).query("quantity > 0")['sticker_code']) if res_yo.data else set()
             res = supabase.table("user_stickers").select("*").eq("user_id", amigo).gt("quantity", 1).execute()
             matches = [f for f in res.data if f['sticker_code'] not in mis_tengo]
             if matches:
@@ -146,29 +127,36 @@ def mostrar_intercambios():
 
 def mostrar_ajustes():
     st.title("⚙️ Ajustes de Cuenta")
-    formulario_nueva_clave()
+    # Formulario de cambio de clave simplificado para que no falle
+    with st.form("pass_form"):
+        n_p = st.text_input("Nueva Clave", type="password")
+        if st.form_submit_button("Cambiar Clave"):
+            supabase.auth.update_user({"password": n_p})
+            st.success("Cambiado.")
     st.divider()
-    conf = st.text_input("Escribe 'BORRAR TODO' para confirmar:")
-    if st.button("Eliminar mis datos"):
+    conf = st.text_input("Escribe 'BORRAR TODO':")
+    if st.button("Eliminar Datos"):
         if conf == "BORRAR TODO":
             supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute()
             st.rerun()
 
 # --- LÓGICA PRINCIPAL ---
 
+# Detección de recuperación por URL
 st.markdown("""<script>if(window.location.hash.includes('type=recovery')){window.location.search = '?recovery=true';}</script>""", unsafe_allow_html=True)
 
-if not st.session_state.user:
+if st.session_state.user is None:
     login_seccion()
 else:
-    is_recovery = st.query_params.get("recovery") == "true" or st.query_params.get("type") == "recovery"
-    if is_recovery:
-        formulario_nueva_clave()
-        if st.button("Regresar"):
+    if st.query_params.get("recovery") == "true":
+        st.title("🔐 Recuperación")
+        nueva = st.text_input("Nueva contraseña", type="password")
+        if st.button("Guardar"):
+            supabase.auth.update_user({"password": nueva})
             st.query_params.clear()
             st.rerun()
     else:
-        st.sidebar.write(f"Usuario: {st.session_state.user.email}")
+        st.sidebar.write(f"Sesión: {st.session_state.user.email}")
         if st.sidebar.button("Cerrar Sesión"): 
             supabase.auth.sign_out()
             st.session_state.user = None
