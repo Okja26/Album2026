@@ -1,18 +1,17 @@
 import streamlit as st
 from supabase import create_client, Client
 import pandas as pd
-import time # Para el pequeño retraso
 
 # 1. CONFIGURACIÓN DE CONEXIÓN
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-# --- INICIALIZACIÓN CRÍTICA DEL ESTADO ---
+# --- INICIALIZACIÓN DE ESTADO ---
 if 'user' not in st.session_state:
     st.session_state.user = None
 
-# Intentar recuperar sesión al cargar (Si el usuario ya entró antes)
+# Intentar recuperar sesión automática (Persistence)
 if st.session_state.user is None:
     try:
         session = supabase.auth.get_session()
@@ -38,19 +37,23 @@ COLORS = {"Falta": "#FF4B4B", "Tengo": "#14A8FD", "Repetida": "#51D153"}
 
 st.set_page_config(page_title="Danna's Panini Hub", layout="wide")
 
-# --- FUNCIONES DE LÓGICA ---
+# --- FUNCIONES DE LÓGICA (CALLBACKS) ---
 
-def login_mejorado(email, password):
-    with st.spinner('Validando credenciales...'):
-        try:
-            res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-            if res.user:
-                st.session_state.user = res.user
-                # PEQUEÑO DELAY PARA SINCRONIZAR
-                time.sleep(0.5) 
-                st.rerun()
-        except:
-            st.sidebar.error("Error al entrar. Revisa tus datos.")
+def callback_login():
+    # Esta función se ejecuta ANTES de refrescar la pantalla
+    email = st.session_state.email_txt
+    password = st.session_state.pass_txt
+    try:
+        res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        if res.user:
+            st.session_state.user = res.user
+    except:
+        st.error("Error en las credenciales")
+
+def callback_logout():
+    supabase.auth.sign_out()
+    st.session_state.user = None
+    st.clear_cache()
 
 def actualizar_cantidad(codigo, sigla, nueva_cant):
     if nueva_cant < 0: return
@@ -66,24 +69,21 @@ def actualizar_cantidad(codigo, sigla, nueva_cant):
 def login_seccion():
     st.sidebar.title("🔐 Acceso")
     tipo = st.sidebar.radio("Acción", ["Iniciar Sesión", "Registrarse"])
-    email = st.sidebar.text_input("Correo", key="email_input")
-    password = st.sidebar.text_input("Contraseña", type="password", key="pass_input")
+    st.sidebar.text_input("Correo", key="email_txt")
+    st.sidebar.text_input("Contraseña", type="password", key="pass_txt")
     
     if tipo == "Iniciar Sesión":
-        if st.sidebar.button("Entrar", use_container_width=True):
-            login_mejorado(email, password)
+        # El secreto está en 'on_click'
+        st.sidebar.button("Entrar", on_click=callback_login, use_container_width=True)
         
         if st.sidebar.button("¿Olvidaste tu contraseña?"):
-            if email:
-                supabase.auth.reset_password_for_email(email)
+            if st.session_state.email_txt:
+                supabase.auth.reset_password_for_email(st.session_state.email_txt)
                 st.sidebar.success("Correo enviado.")
     else:
         if st.sidebar.button("Crear Cuenta"):
-            supabase.auth.sign_up({"email": email, "password": password})
-            st.sidebar.success("¡Creada! Inicia sesión.")
-
-# ... (Las demás funciones: mostrar_resumen, mostrar_seccion_dinamica, mostrar_intercambios, mostrar_ajustes permanecen igual) ...
-# [Copiarlas del código anterior para mantener la funcionalidad]
+            supabase.auth.sign_up({"email": st.session_state.email_txt, "password": st.session_state.pass_txt})
+            st.sidebar.success("¡Cuenta creada! Inicia sesión.")
 
 def mostrar_resumen():
     st.title("🏆 Mi Progreso Global")
@@ -134,44 +134,38 @@ def mostrar_ajustes():
         n_p = st.text_input("Nueva Clave", type="password")
         if st.form_submit_button("Cambiar Clave"):
             supabase.auth.update_user({"password": n_p})
-            st.success("Cambiado.")
+            st.success("Contraseña actualizada.")
     st.divider()
-    conf = st.text_input("Escribe 'BORRAR TODO':")
-    if st.button("Eliminar Datos"):
+    conf = st.text_input("Escribe 'BORRAR TODO' para confirmar eliminación:")
+    if st.button("Eliminar mis datos"):
         if conf == "BORRAR TODO":
             supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute()
+            st.success("Datos eliminados.")
             st.rerun()
 
 # --- LÓGICA DE NAVEGACIÓN ---
 
-# Limpiamos el hash de recuperación si existe
+# Manejo de redirección por hash de recuperación
 st.markdown("""<script>if(window.location.hash.includes('type=recovery')){window.location.search = '?recovery=true';}</script>""", unsafe_allow_html=True)
 
-# Contenedor principal para evitar saltos visuales
-placeholder = st.empty()
-
-with placeholder.container():
-    if st.session_state.user is None:
-        login_seccion()
+if st.session_state.user is None:
+    login_seccion()
+else:
+    # Verificamos si estamos en modo recuperación
+    if st.query_params.get("recovery") == "true":
+        st.title("🔐 Recuperación de Contraseña")
+        nueva = st.text_input("Nueva contraseña", type="password")
+        if st.button("Guardar Contraseña"):
+            supabase.auth.update_user({"password": nueva})
+            st.query_params.clear()
+            st.rerun()
     else:
-        # Modo recuperación
-        if st.query_params.get("recovery") == "true":
-            st.title("🔐 Recuperación")
-            nueva = st.text_input("Nueva contraseña", type="password")
-            if st.button("Guardar Nueva Clave"):
-                supabase.auth.update_user({"password": nueva})
-                st.query_params.clear()
-                st.rerun()
-        else:
-            # INTERFAZ NORMAL
-            st.sidebar.write(f"Sesión: {st.session_state.user.email}")
-            if st.sidebar.button("Cerrar Sesión"): 
-                supabase.auth.sign_out()
-                st.session_state.user = None
-                st.rerun()
-            
-            menu = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios", "⚙️ Ajustes"])
-            if menu == "🏠 Resumen": mostrar_resumen()
-            elif menu == "🚩 Selecciones": mostrar_seccion_dinamica(st.sidebar.selectbox("Equipo", list(CONFIG_ALBUM.keys())))
-            elif menu == "🤝 Intercambios": mostrar_intercambios()
-            else: mostrar_ajustes()
+        # INTERFAZ NORMAL
+        st.sidebar.write(f"Sesión: {st.session_state.user.email}")
+        st.sidebar.button("Cerrar Sesión", on_click=callback_logout)
+        
+        menu = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios", "⚙️ Ajustes"])
+        if menu == "🏠 Resumen": mostrar_resumen()
+        elif menu == "🚩 Selecciones": mostrar_seccion_dinamica(st.sidebar.selectbox("Equipo", list(CONFIG_ALBUM.keys())))
+        elif menu == "🤝 Intercambios": mostrar_intercambios()
+        else: mostrar_ajustes()
