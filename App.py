@@ -3,6 +3,7 @@ from supabase import create_client, Client
 import pandas as pd
 
 # 1. CONFIGURACIÓN DE CONEXIÓN
+# Asegúrate de que estos valores estén en los "Secrets" de Streamlit Cloud
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
@@ -20,6 +21,7 @@ CONFIG_ALBUM = {
     'GHA': 20, 'PAN': 20
 }
 
+# Colores de Danna
 COLORS = {"Falta": "#FF4B4B", "Tengo": "#14A8FD", "Repetida": "#51D153"}
 
 st.set_page_config(page_title="Danna's Panini Hub", layout="wide")
@@ -33,7 +35,7 @@ def actualizar_cantidad(codigo, sigla, nueva_cant):
         supabase.table("user_stickers").upsert(data).execute()
         st.rerun()
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error al actualizar: {e}")
 
 def obtener_datos_usuario():
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
@@ -44,23 +46,31 @@ def obtener_datos_usuario():
 def formulario_nueva_clave():
     st.markdown("### 🔐 Restablecer Contraseña")
     st.info("Ingresa tu nueva contraseña para recuperar el acceso total.")
-    with st.form("reset_password_form"):
+    
+    # El uso de st.form y clear_on_submit ayuda a procesar todo en un solo clic
+    with st.form("reset_pass_form_final", clear_on_submit=True):
         n_pass = st.text_input("Nueva Contraseña", type="password")
         c_pass = st.text_input("Confirmar Contraseña", type="password")
-        submit = st.form_submit_button("Actualizar Contraseña", use_container_width=True)
+        submit = st.form_submit_button("Actualizar Contraseña Ahora", use_container_width=True)
         
         if submit:
             if n_pass == c_pass and len(n_pass) >= 6:
                 try:
+                    # Ejecutar actualización
                     supabase.auth.update_user({"password": n_pass})
-                    st.success("¡Contraseña actualizada con éxito!")
-                    st.balloons()
+                    st.session_state.password_updated = True
+                    # Limpiar parámetros de URL y reiniciar para aplicar cambios
                     st.query_params.clear()
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error al actualizar: {e}")
+                    st.error(f"Error técnico: {e}")
             else:
                 st.error("Las contraseñas no coinciden o son muy cortas (mín. 6 caracteres).")
+
+    if st.session_state.get('password_updated'):
+        st.success("¡Contraseña actualizada correctamente!")
+        st.balloons()
+        del st.session_state.password_updated
 
 def login_seccion():
     st.sidebar.title("🔐 Acceso")
@@ -83,8 +93,8 @@ def login_seccion():
                 try:
                     supabase.auth.reset_password_for_email(email)
                     st.sidebar.success("¡Enlace enviado! Revisa tu correo.")
-                except: st.sidebar.error("Error al enviar el correo.")
-            else: st.sidebar.warning("Ingresa tu correo primero.")
+                except: st.sidebar.error("Error al enviar el correo (Límite excedido).")
+            else: st.sidebar.warning("Ingresa tu correo arriba primero.")
 
     else:
         if st.sidebar.button("Crear Cuenta", use_container_width=True):
@@ -101,16 +111,15 @@ def login_seccion():
 
 def mostrar_resumen():
     st.title("🏆 Mi Progreso Global")
-    
-    # LEYENDA DE AYUDA PARA RECUPERACIÓN
-    st.caption("💡 *¿Viniste desde un correo de recuperación? Si no ves el formulario, ve a la sección de **Ajustes** en el menú lateral.*")
+    st.caption("💡 *¿Viniste desde un correo de recuperación? Si no ves el formulario, ve a **Ajustes** en el menú.*")
     
     df_actual = obtener_datos_usuario()
     total_cromos = sum([v + (1 if k=='FWC' else 0) for k, v in CONFIG_ALBUM.items()])
     tengo_df = df_actual[df_actual['quantity'] > 0] if not df_actual.empty else pd.DataFrame()
     
     m1, m2, m3 = st.columns(3)
-    m1.metric("Avance", f"{(len(tengo_df)/total_cromos)*100:.2f}%")
+    progreso = (len(tengo_df)/total_cromos)*100 if total_cromos > 0 else 0
+    m1.metric("Avance", f"{progreso:.2f}%")
     m2.metric("Tengo", len(tengo_df))
     m3.metric("Faltan", total_cromos - len(tengo_df))
 
@@ -130,8 +139,8 @@ def mostrar_seccion_dinamica(sigla):
         with cols[idx % 4]:
             st.markdown(f'<div style="border:3px solid {color}; border-radius:10px; padding:10px; text-align:center; background:rgba(255,255,255,0.05);"><h3>{cod}</h3><p>Cant: {cant}</p></div>', unsafe_allow_html=True)
             c1, c2 = st.columns(2)
-            if c1.button("➖", key=f"m_{cod}"): actualizar_cantidad(cod, sigla, cant - 1)
-            if c2.button("➕", key=f"p_{cod}"): actualizar_cantidad(cod, sigla, cant + 1)
+            if c1.button("➖", key=f"m_{cod}", use_container_width=True): actualizar_cantidad(cod, sigla, cant - 1)
+            if c2.button("➕", key=f"p_{cod}", use_container_width=True): actualizar_cantidad(cod, sigla, cant + 1)
 
 def mostrar_intercambios():
     st.title("🤝 Intercambios")
@@ -144,24 +153,25 @@ def mostrar_intercambios():
             matches = [f for f in res.data if f['sticker_code'] not in mis_tengo]
             if matches:
                 st.success(f"¡Tiene {len(matches)} que necesitas!")
-                for m in matches: st.button(f"{m['sticker_code']} ({m['team_code']})", disabled=True)
-            else: st.info("No hay matches por ahora.")
+                for m in matches: st.button(f"{m['sticker_code']} ({m['team_code']})", key=f"btn_{m['sticker_code']}", disabled=True)
+            else: st.info("No hay coincidencias por ahora.")
         except: st.error("Código no encontrado.")
 
 def mostrar_ajustes():
     st.title("⚙️ Ajustes de Cuenta")
     formulario_nueva_clave()
     st.divider()
-    st.warning("⚠️ Borrar datos limpiará tu álbum por completo.")
-    conf = st.text_input("Escribe 'BORRAR TODO' para confirmar eliminación:")
-    if st.button("Eliminar mis datos"):
+    st.warning("⚠️ Zona de Peligro")
+    conf = st.text_input("Escribe 'BORRAR TODO' para confirmar:")
+    if st.button("Eliminar mis datos permanentemente"):
         if conf == "BORRAR TODO":
             supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute()
-            st.success("Datos eliminados."); st.rerun()
+            st.success("Datos eliminados correctamente.")
+            st.rerun()
 
 # --- LÓGICA PRINCIPAL ---
 
-# 1. Truco de redirección para detectar '#' como '?'
+# Script de JS para traducir el hash '#' de recuperación a query param '?'
 st.markdown("""
     <script>
     if(window.location.hash.includes('type=recovery')){
@@ -170,26 +180,27 @@ st.markdown("""
     </script>
 """, unsafe_allow_html=True)
 
-# 2. Manejo de sesión
 if 'user' not in st.session_state:
     login_seccion()
 else:
-    # Detectar si estamos en modo recuperación
-    query_params = st.query_params
-    is_recovery = query_params.get("recovery") == "true" or query_params.get("type") == "recovery"
+    # Detección de modo recuperación
+    is_recovery = st.query_params.get("recovery") == "true" or st.query_params.get("type") == "recovery"
 
     if is_recovery:
         st.sidebar.warning("Modo Recuperación Activo")
         formulario_nueva_clave()
-        if st.button("Regresar al Inicio"):
+        if st.button("Cancelar y volver al álbum"):
             st.query_params.clear()
             st.rerun()
     else:
         st.sidebar.write(f"Usuario: {st.session_state.user.email}")
         if st.sidebar.button("Cerrar Sesión"): 
-            supabase.auth.sign_out(); del st.session_state.user; st.rerun()
+            supabase.auth.sign_out()
+            del st.session_state.user
+            st.rerun()
         
         menu = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios", "⚙️ Ajustes"])
+        
         if menu == "🏠 Resumen": mostrar_resumen()
         elif menu == "🚩 Selecciones": mostrar_seccion_dinamica(st.sidebar.selectbox("Equipo", list(CONFIG_ALBUM.keys())))
         elif menu == "🤝 Intercambios": mostrar_intercambios()
