@@ -1,21 +1,25 @@
 import streamlit as st
 from supabase import create_client, Client
 import pandas as pd
+import time # Para el pequeño retraso
 
 # 1. CONFIGURACIÓN DE CONEXIÓN
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-# --- REFUERZO DE SESIÓN ---
+# --- INICIALIZACIÓN CRÍTICA DEL ESTADO ---
 if 'user' not in st.session_state:
     st.session_state.user = None
 
-# Intentar recuperar sesión existente al cargar la página
+# Intentar recuperar sesión al cargar (Si el usuario ya entró antes)
 if st.session_state.user is None:
-    session = supabase.auth.get_session()
-    if session and session.user:
-        st.session_state.user = session.user
+    try:
+        session = supabase.auth.get_session()
+        if session and session.user:
+            st.session_state.user = session.user
+    except:
+        pass
 
 # 2. CONFIGURACIÓN DEL ÁLBUM
 CONFIG_ALBUM = {
@@ -36,15 +40,17 @@ st.set_page_config(page_title="Danna's Panini Hub", layout="wide")
 
 # --- FUNCIONES DE LÓGICA ---
 
-def realizar_login(email, password):
-    try:
-        res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-        if res.user:
-            st.session_state.user = res.user
-            # El rerun aquí es clave después de asignar el usuario
-            st.rerun()
-    except:
-        st.sidebar.error("Credenciales incorrectas.")
+def login_mejorado(email, password):
+    with st.spinner('Validando credenciales...'):
+        try:
+            res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+            if res.user:
+                st.session_state.user = res.user
+                # PEQUEÑO DELAY PARA SINCRONIZAR
+                time.sleep(0.5) 
+                st.rerun()
+        except:
+            st.sidebar.error("Error al entrar. Revisa tus datos.")
 
 def actualizar_cantidad(codigo, sigla, nueva_cant):
     if nueva_cant < 0: return
@@ -60,27 +66,24 @@ def actualizar_cantidad(codigo, sigla, nueva_cant):
 def login_seccion():
     st.sidebar.title("🔐 Acceso")
     tipo = st.sidebar.radio("Acción", ["Iniciar Sesión", "Registrarse"])
-    email = st.sidebar.text_input("Correo", key="login_email")
-    password = st.sidebar.text_input("Contraseña", type="password", key="login_pass")
+    email = st.sidebar.text_input("Correo", key="email_input")
+    password = st.sidebar.text_input("Contraseña", type="password", key="pass_input")
     
     if tipo == "Iniciar Sesión":
-        # Usamos el botón con la función de callback indirecta
         if st.sidebar.button("Entrar", use_container_width=True):
-            realizar_login(email, password)
+            login_mejorado(email, password)
         
         if st.sidebar.button("¿Olvidaste tu contraseña?"):
             if email:
-                try:
-                    supabase.auth.reset_password_for_email(email)
-                    st.sidebar.success("Enlace enviado.")
-                except: st.sidebar.error("Límite de correos excedido.")
+                supabase.auth.reset_password_for_email(email)
+                st.sidebar.success("Correo enviado.")
     else:
-        if st.sidebar.button("Crear Cuenta", use_container_width=True):
-            try:
-                supabase.auth.sign_up({"email": email, "password": password})
-                st.sidebar.success("Cuenta creada. ¡Inicia sesión!")
-            except Exception as e:
-                st.sidebar.error(f"Error: {e}")
+        if st.sidebar.button("Crear Cuenta"):
+            supabase.auth.sign_up({"email": email, "password": password})
+            st.sidebar.success("¡Creada! Inicia sesión.")
+
+# ... (Las demás funciones: mostrar_resumen, mostrar_seccion_dinamica, mostrar_intercambios, mostrar_ajustes permanecen igual) ...
+# [Copiarlas del código anterior para mantener la funcionalidad]
 
 def mostrar_resumen():
     st.title("🏆 Mi Progreso Global")
@@ -127,7 +130,6 @@ def mostrar_intercambios():
 
 def mostrar_ajustes():
     st.title("⚙️ Ajustes de Cuenta")
-    # Formulario de cambio de clave simplificado para que no falle
     with st.form("pass_form"):
         n_p = st.text_input("Nueva Clave", type="password")
         if st.form_submit_button("Cambiar Clave"):
@@ -140,30 +142,36 @@ def mostrar_ajustes():
             supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute()
             st.rerun()
 
-# --- LÓGICA PRINCIPAL ---
+# --- LÓGICA DE NAVEGACIÓN ---
 
-# Detección de recuperación por URL
+# Limpiamos el hash de recuperación si existe
 st.markdown("""<script>if(window.location.hash.includes('type=recovery')){window.location.search = '?recovery=true';}</script>""", unsafe_allow_html=True)
 
-if st.session_state.user is None:
-    login_seccion()
-else:
-    if st.query_params.get("recovery") == "true":
-        st.title("🔐 Recuperación")
-        nueva = st.text_input("Nueva contraseña", type="password")
-        if st.button("Guardar"):
-            supabase.auth.update_user({"password": nueva})
-            st.query_params.clear()
-            st.rerun()
+# Contenedor principal para evitar saltos visuales
+placeholder = st.empty()
+
+with placeholder.container():
+    if st.session_state.user is None:
+        login_seccion()
     else:
-        st.sidebar.write(f"Sesión: {st.session_state.user.email}")
-        if st.sidebar.button("Cerrar Sesión"): 
-            supabase.auth.sign_out()
-            st.session_state.user = None
-            st.rerun()
-        
-        menu = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios", "⚙️ Ajustes"])
-        if menu == "🏠 Resumen": mostrar_resumen()
-        elif menu == "🚩 Selecciones": mostrar_seccion_dinamica(st.sidebar.selectbox("Equipo", list(CONFIG_ALBUM.keys())))
-        elif menu == "🤝 Intercambios": mostrar_intercambios()
-        else: mostrar_ajustes()
+        # Modo recuperación
+        if st.query_params.get("recovery") == "true":
+            st.title("🔐 Recuperación")
+            nueva = st.text_input("Nueva contraseña", type="password")
+            if st.button("Guardar Nueva Clave"):
+                supabase.auth.update_user({"password": nueva})
+                st.query_params.clear()
+                st.rerun()
+        else:
+            # INTERFAZ NORMAL
+            st.sidebar.write(f"Sesión: {st.session_state.user.email}")
+            if st.sidebar.button("Cerrar Sesión"): 
+                supabase.auth.sign_out()
+                st.session_state.user = None
+                st.rerun()
+            
+            menu = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios", "⚙️ Ajustes"])
+            if menu == "🏠 Resumen": mostrar_resumen()
+            elif menu == "🚩 Selecciones": mostrar_seccion_dinamica(st.sidebar.selectbox("Equipo", list(CONFIG_ALBUM.keys())))
+            elif menu == "🤝 Intercambios": mostrar_intercambios()
+            else: mostrar_ajustes()
