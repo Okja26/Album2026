@@ -3,7 +3,7 @@ from supabase import create_client, Client
 import pandas as pd
 
 # 1. CONFIGURACIÓN DE CONEXIÓN (Secrets)
-# Asegúrate de configurar estas variables en tu archivo .streamlit/secrets.toml
+# Estas variables deben estar en .streamlit/secrets.toml o en los Secrets de Streamlit Cloud
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
@@ -21,11 +21,11 @@ CONFIG_ALBUM = {
     'GHA': 20, 'PAN': 20
 }
 
-# Colores preferidos por Danna
+# Colores personalizados (Rojo: Falta, Azul: Una, Verde: Repetida)
 COLORS = {
-    "Falta": "#FF4B4B",     # Rojo
-    "Tengo": "#14A8FD",     # Azul
-    "Repetida": "#51D153",  # Verde
+    "Falta": "#FF4B4B",     
+    "Tengo": "#14A8FD",     
+    "Repetida": "#51D153",  
 }
 
 st.set_page_config(page_title="Danna's Panini Hub", layout="wide")
@@ -50,7 +50,7 @@ def obtener_datos_usuario():
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     return pd.DataFrame(res.data)
 
-# --- COMPONENTES DE INTERFAZ ---
+# --- VISTAS DE LA APLICACIÓN ---
 
 def login_seccion():
     st.sidebar.title("🔐 Acceso")
@@ -90,17 +90,15 @@ def mostrar_resumen():
     
     st.divider()
     if not df_actual.empty:
-        st.subheader("📋 Inventario Actual")
+        st.subheader("📋 Inventario Detallado")
         st.dataframe(df_actual[['sticker_code', 'team_code', 'quantity']], use_container_width=True)
 
 def mostrar_seccion_dinamica(sigla):
     st.title(f"⚽ Selección: {sigla}")
     
-    # Obtener inventario de la sección desde Supabase
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).eq("team_code", sigla).execute()
     inventario = {item['sticker_code']: item['quantity'] for item in res.data}
 
-    # Generar códigos de estampas
     if sigla == 'FWC': codigos = ['00'] + [f'FWC{i}' for i in range(1, 20)]
     elif sigla == 'CC': codigos = [f'CC{i}' for i in range(1, 15)]
     else: codigos = [f'{sigla}{i}' for i in range(1, 21)]
@@ -110,46 +108,76 @@ def mostrar_seccion_dinamica(sigla):
         col_actual = cols[idx % 4]
         cant = inventario.get(cod, 0)
         
-        # Lógica de colores de Danna
-        if cant == 0:
-            color_tarjeta = COLORS["Falta"]
-        elif cant == 1:
-            color_tarjeta = COLORS["Tengo"]
-        else:
-            color_tarjeta = COLORS["Repetida"]
+        # Color del borde según reglas de Danna
+        if cant == 0: color_tarjeta = COLORS["Falta"]
+        elif cant == 1: color_tarjeta = COLORS["Tengo"]
+        else: color_tarjeta = COLORS["Repetida"]
 
         with col_actual:
-            # HTML para la tarjeta con el borde de color
-            st.markdown(
-                f"""
-                <div style="
-                    border: 3px solid {color_tarjeta};
-                    border-radius: 12px;
-                    padding: 15px;
-                    margin-bottom: 5px;
-                    background-color: rgba(255, 255, 255, 0.05);
-                    text-align: center;
-                ">
+            st.markdown(f"""
+                <div style="border: 3px solid {color_tarjeta}; border-radius: 12px; padding: 15px; margin-bottom: 5px; background-color: rgba(255, 255, 255, 0.05); text-align: center;">
                     <h2 style="color: {color_tarjeta}; margin: 0;">{cod}</h2>
-                    <p style="margin: 5px 0; font-size: 1.1em;">Cantidad: <b>{cant}</b></p>
+                    <p style="margin: 5px 0;">Cantidad: <b>{cant}</b></p>
                 </div>
-                """,
-                unsafe_allow_html=True
-            )
+                """, unsafe_allow_html=True)
             
-            # Botones de control
             c1, c2 = st.columns(2)
             if c1.button("➖", key=f"min_{cod}", use_container_width=True):
                 actualizar_cantidad(cod, sigla, cant - 1)
             if c2.button("➕", key=f"plu_{cod}", use_container_width=True):
                 actualizar_cantidad(cod, sigla, cant + 1)
-            st.write("") # Espaciado
+            st.write("") 
+
+def mostrar_intercambios():
+    st.title("🤝 Centro de Intercambio")
+    mi_id = st.session_state.user.id
+    
+    st.info(f"Tu código personal para compartir: `{mi_id}`")
+    
+    st.divider()
+    codigo_amigo = st.text_input("Ingresa el código de tu amigo para ver qué tiene repetido:")
+    
+    if codigo_amigo:
+        if codigo_amigo == mi_id:
+            st.warning("¡Ese es tu propio código!")
+        else:
+            try:
+                # Datos del usuario actual (lo que tengo)
+                mis_datos = obtener_datos_usuario()
+                mis_tengo = set(mis_datos[mis_datos['quantity'] > 0]['sticker_code']) if not mis_datos.empty else set()
+
+                # Datos del amigo (solo repetidas > 1 por política RLS)
+                res_amigo = supabase.table("user_stickers").select("*").eq("user_id", codigo_amigo).gt("quantity", 1).execute()
+                df_amigo = pd.DataFrame(res_amigo.data)
+
+                if not df_amigo.empty:
+                    # Comparar: Repetidas de él que yo no tengo
+                    df_amigo['necesaria'] = df_amigo['sticker_code'].apply(lambda x: x not in mis_tengo)
+                    match = df_amigo[df_amigo['necesaria'] == True]
+
+                    if not match.empty:
+                        st.success(f"¡Tu amigo tiene {len(match)} estampas que te faltan!")
+                        m_cols = st.columns(4)
+                        for i, fila in match.reset_index().iterrows():
+                            with m_cols[i % 4]:
+                                st.markdown(f"""
+                                    <div style="border: 2px solid {COLORS['Tengo']}; border-radius: 10px; padding: 10px; text-align: center;">
+                                        <b style="color: {COLORS['Tengo']};">{fila['sticker_code']}</b><br>
+                                        <small>{fila['team_code']}</small>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                    else:
+                        st.info("Tu amigo tiene repetidas, pero tú ya las tienes todas.")
+                else:
+                    st.warning("Este amigo no tiene repetidas disponibles.")
+            except Exception as e:
+                st.error("Error al buscar amigo. Revisa que el código sea correcto.")
 
 # --- LÓGICA DE NAVEGACIÓN ---
 
 if 'user' not in st.session_state:
     login_seccion()
-    st.info("👋 Bienvenido. Inicia sesión para ver tu álbum personalizado.")
+    st.info("👋 Bienvenido. Inicia sesión para gestionar tu álbum.")
 else:
     st.sidebar.success(f"Sesión: {st.session_state.user.email}")
     if st.sidebar.button("Cerrar Sesión"):
@@ -157,10 +185,12 @@ else:
         del st.session_state.user
         st.rerun()
 
-    menu = st.sidebar.radio("Menú:", ["🏠 Resumen", "🚩 Selecciones"])
+    menu = st.sidebar.radio("Menú:", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios"])
 
     if menu == "🏠 Resumen":
         mostrar_resumen()
-    else:
+    elif menu == "🚩 Selecciones":
         equipo = st.sidebar.selectbox("Selecciona equipo:", list(CONFIG_ALBUM.keys()))
         mostrar_seccion_dinamica(equipo)
+    else:
+        mostrar_intercambios()
