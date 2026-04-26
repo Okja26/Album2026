@@ -61,16 +61,22 @@ def login_seccion():
     if tipo == "Iniciar Sesión":
         if st.sidebar.button("Entrar", use_container_width=True):
             try:
+                # 1. Intentar login
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                st.session_state.user = res.user
-                st.rerun()
-            except:
-                st.sidebar.error("Usuario o clave incorrectos")
+                
+                # 2. Guardar el usuario explícitamente en el estado
+                if res.user:
+                    st.session_state.user = res.user
+                    # 3. Limpiar cualquier mensaje previo y forzar reinicio limpio
+                    st.rerun()
+            except Exception as e:
+                # Si realmente hay un error, lo mostramos
+                st.sidebar.error("Credenciales incorrectas. Revisa tu correo o contraseña.")
     else:
         if st.sidebar.button("Crear Cuenta", use_container_width=True):
             try:
                 supabase.auth.sign_up({"email": email, "password": password})
-                st.sidebar.success("¡Cuenta creada! Revisa tu correo.")
+                st.sidebar.success("¡Cuenta creada! Intenta iniciar sesión ahora.")
             except Exception as e:
                 st.sidebar.error(f"Error: {e}")
 
