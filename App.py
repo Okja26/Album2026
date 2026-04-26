@@ -58,11 +58,20 @@ def callback_logout():
 def actualizar_cantidad(codigo, sigla, nueva_cant):
     if nueva_cant < 0: return
     try:
-        data = {"user_id": st.session_state.user.id, "sticker_code": codigo, "team_code": sigla, "quantity": nueva_cant}
-        supabase.table("user_stickers").upsert(data).execute()
+        data = {
+            "user_id": st.session_state.user.id, 
+            "sticker_code": codigo, 
+            "team_code": sigla, 
+            "quantity": nueva_cant
+        }
+        # Añadimos 'on_conflict' para que sepa por qué columnas guiarse
+        supabase.table("user_stickers").upsert(
+            data, 
+            on_conflict="user_id,sticker_code"
+        ).execute()
         st.rerun()
     except Exception as e:
-        st.error(f"Error: {e}")
+        st.error(f"Error al actualizar: {e}")
 
 # --- VISTAS ---
 
