@@ -39,7 +39,29 @@ def obtener_datos_usuario():
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     return pd.DataFrame(res.data)
 
-# --- VISTAS ---
+# --- COMPONENTES DE SEGURIDAD ---
+
+def formulario_nueva_clave():
+    st.markdown("### 🔐 Restablecer Contraseña")
+    st.write("Ingresa tu nueva contraseña para recuperar el acceso a tu cuenta.")
+    with st.form("reset_password_form"):
+        n_pass = st.text_input("Nueva Contraseña", type="password")
+        c_pass = st.text_input("Confirmar Contraseña", type="password")
+        submit = st.form_submit_button("Actualizar y Entrar", use_container_width=True)
+        
+        if submit:
+            if n_pass == c_pass and len(n_pass) >= 6:
+                try:
+                    supabase.auth.update_user({"password": n_pass})
+                    st.success("¡Contraseña actualizada! Ya puedes navegar.")
+                    st.balloons()
+                    # Limpiamos los parámetros de la URL para que no vuelva a aparecer
+                    st.query_params.clear()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+            else:
+                st.error("Las contraseñas no coinciden o son muy cortas (mín. 6 caracteres).")
 
 def login_seccion():
     st.sidebar.title("🔐 Acceso")
@@ -61,9 +83,9 @@ def login_seccion():
             if email:
                 try:
                     supabase.auth.reset_password_for_email(email)
-                    st.sidebar.success("Enlace enviado a tu correo.")
-                except: st.sidebar.error("Error al enviar enlace.")
-            else: st.sidebar.warning("Ingresa tu correo arriba.")
+                    st.sidebar.success("Enlace de recuperación enviado.")
+                except: st.sidebar.error("Error al enviar el correo.")
+            else: st.sidebar.warning("Ingresa tu correo para mandarte el link.")
 
     else:
         if st.sidebar.button("Crear Cuenta", use_container_width=True):
@@ -72,9 +94,11 @@ def login_seccion():
                 st.sidebar.success("Cuenta creada. ¡Ya puedes iniciar sesión!")
             except Exception as e:
                 if "already registered" in str(e).lower():
-                    st.sidebar.error("Este correo ya está registrado. Intenta iniciar sesión.")
+                    st.sidebar.error("Este correo ya está registrado.")
                 else:
                     st.sidebar.error(f"Error: {e}")
+
+# --- VISTAS DEL ÁLBUM ---
 
 def mostrar_resumen():
     st.title("🏆 Mi Progreso Global")
@@ -123,24 +147,36 @@ def mostrar_intercambios():
 
 def mostrar_ajustes():
     st.title("⚙️ Ajustes de Cuenta")
-    st.warning("⚠️ Borrar datos limpiará tu álbum por completo.")
+    st.warning("⚠️ Zona de Peligro")
     conf = st.text_input("Escribe 'BORRAR TODO' para confirmar:")
     if st.button("Eliminar mis datos"):
         if conf == "BORRAR TODO":
             supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute()
             st.success("Datos eliminados. Cerrando sesión..."); st.rerun()
 
-# --- NAVEGACIÓN ---
+# --- LÓGICA PRINCIPAL ---
+
+# Detectar modo recuperación desde el enlace del correo
+query_params = st.query_params
+is_recovery = "type" in query_params and query_params["type"] == "recovery"
 
 if 'user' not in st.session_state:
     login_seccion()
 else:
-    st.sidebar.write(f"Sesión: {st.session_state.user.email}")
-    if st.sidebar.button("Salir"): 
-        supabase.auth.sign_out(); del st.session_state.user; st.rerun()
-    
-    menu = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios", "⚙️ Ajustes"])
-    if menu == "🏠 Resumen": mostrar_resumen()
-    elif menu == "🚩 Selecciones": mostrar_seccion_dinamica(st.sidebar.selectbox("Equipo", list(CONFIG_ALBUM.keys())))
-    elif menu == "🤝 Intercambios": mostrar_intercambios()
-    else: mostrar_ajustes()
+    # Si viene del correo de recuperación, bloqueamos la app con el formulario
+    if is_recovery:
+        formulario_nueva_clave()
+        if st.button("Cancelar"):
+            st.query_params.clear()
+            st.rerun()
+    else:
+        # Navegación normal
+        st.sidebar.write(f"Sesión: {st.session_state.user.email}")
+        if st.sidebar.button("Salir"): 
+            supabase.auth.sign_out(); del st.session_state.user; st.rerun()
+        
+        menu = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios", "⚙️ Ajustes"])
+        if menu == "🏠 Resumen": mostrar_resumen()
+        elif menu == "🚩 Selecciones": mostrar_seccion_dinamica(st.sidebar.selectbox("Equipo", list(CONFIG_ALBUM.keys())))
+        elif menu == "🤝 Intercambios": mostrar_intercambios()
+        else: mostrar_ajustes()
