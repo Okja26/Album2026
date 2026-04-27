@@ -36,7 +36,7 @@ CONFIG_ALBUM = {
 
 COLORS = {"Falta": "#FF4B4B", "Tengo": "#14A8FD", "Repetida": "#51D153"}
 
-st.set_page_config(page_title="Danna's Panini Hub", layout="wide")
+st.set_page_config(page_title="Panini Hub", layout="wide")
 
 # --- CALLBACKS ---
 
