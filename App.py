@@ -3,18 +3,28 @@ from supabase import create_client, Client
 import pandas as pd
 import plotly.express as px
 
-# 1. CONEXIÓN
+# 1. CONEXIÓN A SUPABASE
+# Asegúrate de tener SUPABASE_URL y SUPABASE_KEY en tus Secrets de Streamlit
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-# --- INICIALIZACIÓN DE SESIÓN ---
+# --- INICIALIZACIÓN DE ESTADO ---
 if 'user' not in st.session_state:
     st.session_state.user = None
 if 'carrito_recibir' not in st.session_state:
     st.session_state.carrito_recibir = []
 if 'carrito_entregar' not in st.session_state:
     st.session_state.carrito_entregar = []
+
+# Recuperar sesión automática si existe
+if st.session_state.user is None:
+    try:
+        session = supabase.auth.get_session()
+        if session and session.user:
+            st.session_state.user = session.user
+    except:
+        pass
 
 # 2. CONFIGURACIÓN DEL ÁLBUM
 CONFIG_ALBUM = {
@@ -33,7 +43,32 @@ COLORS = {"Falta": "#FF4B4B", "Tengo": "#14A8FD", "Repetida": "#51D153"}
 
 st.set_page_config(page_title="Danna's Panini Hub", layout="wide")
 
-# --- LÓGICA DE DATOS ---
+# --- FUNCIONES DE LÓGICA ---
+
+def callback_login():
+    try:
+        res = supabase.auth.sign_in_with_password({
+            "email": st.session_state.email_txt, 
+            "password": st.session_state.pass_txt
+        })
+        if res.user: st.session_state.user = res.user
+    except: st.error("Credenciales incorrectas.")
+
+def callback_signup():
+    try:
+        res = supabase.auth.sign_up({
+            "email": st.session_state.email_txt, 
+            "password": st.session_state.pass_txt
+        })
+        if res.user: st.session_state.user = res.user
+    except Exception as e: st.error(f"Error: {e}")
+
+def callback_logout():
+    supabase.auth.sign_out()
+    for key in list(st.session_state.keys()): del st.session_state[key]
+    st.session_state.user = None
+    st.rerun()
+
 def actualizar_db(lista_codigos, operacion):
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     inv = {item['sticker_code']: (item['quantity'], item['team_code']) for item in res.data}
@@ -55,24 +90,25 @@ def procesar_intercambio_final():
     actualizar_db(st.session_state.carrito_entregar, "restar")
     st.session_state.carrito_recibir = []
     st.session_state.carrito_entregar = []
-    st.success("¡Inventario actualizado!")
+    st.success("¡Inventario actualizado con éxito!")
     st.rerun()
 
 # --- VISTAS ---
+
 def login_seccion():
-    st.title("👋 ¡Bienvenida!")
+    st.title("👋 ¡Bienvenida a tu Panini Tracker!")
+    st.info("Gestiona tu álbum e intercambia con amigos. Inicia sesión a la izquierda ↖️")
     st.sidebar.title("🔐 Acceso")
-    email = st.sidebar.text_input("Correo")
-    passw = st.sidebar.text_input("Contraseña", type="password")
-    if st.sidebar.button("Entrar", use_container_width=True):
-        try:
-            res = supabase.auth.sign_in_with_password({"email": email, "password": passw})
-            st.session_state.user = res.user
-            st.rerun()
-        except: st.error("Credenciales incorrectas")
+    tipo = st.sidebar.radio("Acción", ["Iniciar Sesión", "Registrarse"])
+    st.sidebar.text_input("Correo", key="email_txt")
+    st.sidebar.text_input("Contraseña", type="password", key="pass_txt")
+    if tipo == "Iniciar Sesión":
+        st.sidebar.button("Entrar", on_click=callback_login, use_container_width=True)
+    else:
+        st.sidebar.button("Crear Cuenta", on_click=callback_signup, use_container_width=True)
 
 def mostrar_resumen():
-    st.title("📊 Estadísticas")
+    st.title("📊 Estadísticas Generales")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     df = pd.DataFrame(res.data)
     total = sum([v + (1 if k=='FWC' else 0) for k, v in CONFIG_ALBUM.items()])
@@ -80,11 +116,11 @@ def mostrar_resumen():
     
     c1, c2, c3 = st.columns(3)
     c1.metric("Progreso", f"{(tengo/total)*100:.1f}%")
-    c2.metric("Tengo", tengo)
-    c3.metric("Faltan", total - tengo)
+    c2.metric("Pegadas", tengo)
+    c3.metric("Faltantes", total - tengo)
     
     fig = px.pie(names=["Tengo", "Faltan"], values=[tengo, total-tengo], hole=0.5, 
-                 color_discrete_sequence=[COLORS["Tengo"], COLORS["Falta"]])
+                 color_discrete_sequence=[COLORS["Tengo"], COLORS["Falta"]], title="Estado del Álbum")
     st.plotly_chart(fig, use_container_width=True)
 
 def mostrar_seccion_dinamica(sigla):
@@ -109,10 +145,11 @@ def mostrar_seccion_dinamica(sigla):
                 st.rerun()
 
 def mostrar_intercambios():
-    st.title("🤝 Intercambios")
+    st.title("🤝 Centro de Intercambios")
     tab1, tab2 = st.tabs(["Registro Visual", "Comparar con Amigo"])
     
     with tab1:
+        st.write("Agrega las estampas a las listas y confirma el intercambio.")
         col_l, col_r = st.columns(2)
         with col_l:
             st.subheader("📥 Recibo")
@@ -123,7 +160,8 @@ def mostrar_intercambios():
             cod_r = c2.selectbox("Número", n_r, key="nr")
             if c3.button("➕", key="br"): st.session_state.carrito_recibir.append(cod_r)
             for item in st.session_state.carrito_recibir:
-                st.markdown(f'<span style="background:#14A8FD; color:white; padding:5px 10px; border-radius:15px; margin-right:5px;">{item}</span>', unsafe_allow_html=True)
+                st.markdown(f'<span style="background:#14A8FD; color:white; padding:5px 10px; border-radius:15px; margin-right:5px; display:inline-block; margin-top:5px;">{item}</span>', unsafe_allow_html=True)
+            if st.button("Limpiar recibidas"): st.session_state.carrito_recibir = []
 
         with col_r:
             st.subheader("📤 Entrego")
@@ -134,43 +172,81 @@ def mostrar_intercambios():
             cod_e = c5.selectbox("Número", n_e, key="ne")
             if c6.button("➕", key="be"): st.session_state.carrito_entregar.append(cod_e)
             for item in st.session_state.carrito_entregar:
-                st.markdown(f'<span style="background:#FF4B4B; color:white; padding:5px 10px; border-radius:15px; margin-right:5px;">{item}</span>', unsafe_allow_html=True)
+                st.markdown(f'<span style="background:#FF4B4B; color:white; padding:5px 10px; border-radius:15px; margin-right:5px; display:inline-block; margin-top:5px;">{item}</span>', unsafe_allow_html=True)
+            if st.button("Limpiar entregas"): st.session_state.carrito_entregar = []
         
-        if st.button("🚀 Confirmar Intercambio", use_container_width=True):
+        st.divider()
+        if st.button("🚀 Confirmar Intercambio Completo", use_container_width=True):
             procesar_intercambio_final()
+
+    with tab2:
+        st.info(f"Tu código: `{st.session_state.user.id}`")
+        amigo = st.text_input("Código de tu amigo:")
+        if amigo and amigo != st.session_state.user.id:
+            try:
+                res_yo = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
+                df_yo = pd.DataFrame(res_yo.data)
+                mis_tengo = set(df_yo[df_yo['quantity'] > 0]['sticker_code']) if not df_yo.empty else set()
+                mis_repetidas = set(df_yo[df_yo['quantity'] > 1]['sticker_code']) if not df_yo.empty else set()
+
+                res_amigo = supabase.table("user_stickers").select("*").eq("user_id", amigo).execute()
+                df_amigo = pd.DataFrame(res_amigo.data)
+                amigo_tengo = set(df_amigo[df_amigo['quantity'] > 0]['sticker_code']) if not df_amigo.empty else set()
+                amigo_repetidas = set(df_amigo[df_amigo['quantity'] > 1]['sticker_code']) if not df_amigo.empty else set()
+
+                c_a, c_b = st.columns(2)
+                with c_a:
+                    st.write("🎁 Él tiene para darte:")
+                    for s in [r for r in amigo_repetidas if r not in mis_tengo]: st.success(f"✅ {s}")
+                with c_b:
+                    st.write("🤲 Tú tienes para darle:")
+                    for s in [r for r in mis_repetidas if r not in amigo_tengo]: st.warning(f"💎 {s}")
+            except: st.error("Código no encontrado.")
 
 def mostrar_exportar():
     st.title("📥 Exportar Datos")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
-    df = pd.DataFrame(res.data)
+    df_db = pd.DataFrame(res.data)
     
-    # Lógica de Faltantes
-    pegadas = set(df[df['quantity'] > 0]['sticker_code']) if not df.empty else set()
+    # Faltantes
+    pegadas = set(df_db[df_db['quantity'] > 0]['sticker_code']) if not df_db.empty else set()
     faltantes = []
     for team, total in CONFIG_ALBUM.items():
         rango = (['00'] + [f'FWC{i}' for i in range(1, 20)] if team == 'FWC' else 
                  ([f'CC{i}' for i in range(1, 15)] if team == 'CC' else [f'{team}{i}' for i in range(1, 21)]))
         for c in rango:
-            if c not in pegadas: faltantes.append(c)
+            if c not in pegadas: faltantes.append({"Selección": team, "Código": c})
     
+    df_f = pd.DataFrame(faltantes)
+
+    # Repetidas
+    if not df_db.empty:
+        df_r = df_db[df_db['quantity'] > 1].copy()
+        df_r['Cantidad Extra'] = df_r['quantity'] - 1
+        df_r = df_r[['team_code', 'sticker_code', 'Cantidad Extra']].rename(columns={'team_code': 'Selección', 'sticker_code': 'Código'})
+    else:
+        df_r = pd.DataFrame(columns=["Selección", "Código", "Cantidad Extra"])
+
     col1, col2 = st.columns(2)
     with col1:
-        st.write(f"Tienes {len(faltantes)} faltantes")
-        df_f = pd.DataFrame(faltantes, columns=["Código"])
+        st.subheader("🚩 Mis Faltantes")
+        st.dataframe(df_f, use_container_width=True)
         st.download_button("Descargar Faltantes (CSV)", df_f.to_csv(index=False), "faltantes.csv", "text/csv")
     with col2:
-        df_r = df[df['quantity'] > 1].copy() if not df.empty else pd.DataFrame()
-        st.write(f"Tienes {len(df_r)} repetidas")
+        st.subheader("💎 Mis Repetidas")
+        st.dataframe(df_r, use_container_width=True)
         st.download_button("Descargar Repetidas (CSV)", df_r.to_csv(index=False), "repetidas.csv", "text/csv")
 
 def mostrar_ajustes():
     st.title("⚙️ Ajustes")
     with st.form("pass"):
+        st.subheader("Cambiar Contraseña")
         n = st.text_input("Nueva Contraseña", type="password")
         if st.form_submit_button("Actualizar"):
             supabase.auth.update_user({"password": n})
-            st.success("Actualizada")
-    if st.button("Borrar Cuenta"):
+            st.success("Contraseña actualizada.")
+    st.divider()
+    if st.button("Eliminar todos mis datos"):
         supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute()
         st.rerun()
 
@@ -178,8 +254,10 @@ def mostrar_ajustes():
 if st.session_state.user is None:
     login_seccion()
 else:
-    st.sidebar.button("Cerrar Sesión", on_click=lambda: st.session_state.update({"user": None}))
+    st.sidebar.write(f"👤 {st.session_state.user.email}")
+    st.sidebar.button("Cerrar Sesión", on_click=callback_logout)
     m = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios", "📥 Exportar", "⚙️ Ajustes"])
+    
     if m == "🏠 Resumen": mostrar_resumen()
     elif m == "🚩 Selecciones": mostrar_seccion_dinamica(st.sidebar.selectbox("Equipo", list(CONFIG_ALBUM.keys())))
     elif m == "🤝 Intercambios": mostrar_intercambios()
