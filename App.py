@@ -96,7 +96,7 @@ def procesar_intercambio_final():
 # --- VISTAS ---
 
 def login_seccion():
-    st.title("👋 ¡Bienvenida a tu Panini Tracker!")
+    st.title("👋 ¡Bienvenido a tu Panini Tracker!")
     st.info("Gestiona tu álbum e intercambia con amigos. Inicia sesión a la izquierda ↖️")
     st.sidebar.title("🔐 Acceso")
     tipo = st.sidebar.radio("Acción", ["Iniciar Sesión", "Registrarse"])
