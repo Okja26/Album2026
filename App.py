@@ -41,22 +41,6 @@ CONFIG_ALBUM = {
     'GHA': 20, 'PAN': 20
 }
 
-GRUPOS= {
-    "FWC" : ["FWC"],
-    "Grupo A" : ["MEX", "RSA", "KOR", "CZE"],
-    "Grupo B" : ["CAN", "BIH", "QAT", "SUI"],
-    "Grupo C" : ["BRA", "MAR", "HAI", "SCO"],
-    "Grupo D" : ["USA", "PAR", "AUS", "TUR"],
-    "Grupo E" : ["GER", "CUW", "CIV", "ECU"],
-    "Grupo F" : ["NED", "JPN", "SWE", "TUN"],
-    "Coca Cola": ["CC"],
-    "Grupo G" : ["BEL", "EGY", "IRN", "NZL"],
-    "Grupo H" : ["ESP", "CPV", "KSA", "URU"],
-    "Grupo I" : ["fFRA", "SEN", "IRQ", "NOR"],
-    "Grupo J" : ["ARG", "ALG", "AUT", "JOR"],
-    "Grupo K" : ["POR", "COD", "UZB", "COL"],
-    "Grupo L" : ["ENG", "CRO", "GHA", "PAN"]
-}
 
 COLORS = {"Falta": "#FF4B4B", "Tengo": "#14A8FD", "Repetida": "#51D153"}
 
@@ -141,43 +125,6 @@ def mostrar_resumen():
     fig = px.pie(names=["Tengo", "Faltan"], values=[tengo, total-tengo], hole=0.5, 
                  color_discrete_sequence=[COLORS["Tengo"], COLORS["Falta"]], title="Estado del Álbum")
     st.plotly_chart(fig, use_container_width=True)
-    st.divider()
-    st.subheader("Análisis Detallado")
-    modo = st.radio("Ver estadísticas por:", ["Grupos", "Selección Específica"], horizontal=True)
-    if modo == "Grupos":
-        opcion_grupo = st.selectbox("Selecciona un Grupo:", list(GRUPOS.keys()))
-        equipos_del_grupo = GRUPOS[opcion_grupo]
-        tengo_grupo = tengo_df[tengo_df['team_code'].isin(equipos_del_grupo)]
-        total_grupo = sum([CONFIG_ALBUM.get(e, 20) + (1 if e=='FWC' else 0) for e in equipos_del_grupo])
-        cant_tengo_g = len(tengo_grupo)
-        cant_falta_g = total_grupo - cant_tengo_g
-        
-        col_pie, col_info = st.columns([2, 1])
-        with col_pie:
-            fig = px.pie(names=["Tengo", "Faltan"], values=[cant_tengo_g, cant_falta_g], hole=0.5,
-                         color_discrete_sequence=[COLORS["Tengo"], COLORS["Falta"]], title=f"Progreso {opcion_grupo}")
-            st.plotly_chart(fig, use_container_width=True)
-        with col_info:
-            st.write(f"**Detalle del {opcion_grupo}:**")
-            for e in equipos_del_grupo:
-                t_e = len(tengo_df[tengo_df['team_code'] == e])
-                total_e = CONFIG_ALBUM.get(e, 20) + (1 if e=='FWC' else 0)
-                st.write(f"- {e}: {t_e}/{total_e} ({(t_e/total_e)*100:.0f}%)")
-
-    else:
-        opcion_sel = st.selectbox("Selecciona una Selección:", list(CONFIG_ALBUM.keys()))
-        t_s = len(tengo_df[tengo_df['team_code'] == opcion_sel])
-        total_s = CONFIG_ALBUM.get(opcion_sel, 20) + (1 if opcion_sel=='FWC' else 0)
-        
-        col_pie, col_info = st.columns([2, 1])
-        with col_pie:
-            fig = px.pie(names=["Tengo", "Faltan"], values=[t_s, total_s - t_s], hole=0.5,
-                         color_discrete_sequence=[COLORS["Tengo"], COLORS["Falta"]], title=f"Progreso {opcion_sel}")
-            st.plotly_chart(fig, use_container_width=True)
-        with col_info:
-            st.metric(f"Avance {opcion_sel}", f"{(t_s/total_s)*100:.1f}%")
-            st.write(f"Te faltan **{total_s - t_s}** estampas para completar esta sección.")
-
 def mostrar_seccion_dinamica(sigla):
     st.title(f"⚽ Selección: {sigla}")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).eq("team_code", sigla).execute()
