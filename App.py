@@ -143,7 +143,7 @@ def mostrar_resumen():
     st.plotly_chart(fig, use_container_width=True)
     st.divider()
     st.subheader("Análisis Detallado")
-    modo = st.radio("Ver estadísticas por:", ["Grupos", "Selección Específica", horizontal=True])
+    modo = st.radio("Ver estadísticas por:", ["Grupos", "Selección Específica"], horizontal=True)
     if modo == "Grupos":
         opcion_grupo = st.selectbox("Selecciona un Grupo:", list(GRUPOS.keys()))
         equipos_del_grupo = GRUPOS[opcion_grupo]
