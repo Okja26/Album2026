@@ -58,21 +58,23 @@ def actualizar_apartado(cod, delta):
 
 # --- VISTAS ---
 def vista_resumen():
-    st.title("📊 Resumen del Álbum")[cite: 1]
-    st.markdown("Consulta el progreso global de tu colección.")[cite: 1, 2]
+    st.title("📊 Resumen del Álbum")
+    st.markdown("Consulta el progreso global de tu colección.")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     df = pd.DataFrame(res.data)
     total = sum([v + (1 if k=='FWC' else 0) for k, v in CONFIG_ALBUM.items()])
     tengo = len(df[df['quantity'] > 0]) if not df.empty else 0
-    c1, c2, c3 = st.columns(3); c1.metric("Progreso", f"{(tengo/total)*100:.1f}%"); c2.metric("Tengo", tengo); c3.metric("Faltan", total - tengo)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Progreso", f"{(tengo/total)*100:.1f}%")
+    c2.metric("Tengo", tengo)
+    c3.metric("Faltan", total - tengo)
     fig = px.pie(names=["Tengo", "Faltan"], values=[tengo, total-tengo], hole=0.5, color_discrete_sequence=[COLORS["Tengo"], COLORS["Falta"]])
     st.plotly_chart(fig, use_container_width=True)
 
 def vista_selecciones(sigla):
-    st.title(f"⚽ Selección: {sigla}")[cite: 1]
-    # Leyenda de colores solicitada
+    st.title(f"⚽ Selección: {sigla}")
     st.info("💡 **Leyenda:** 🔴 Rojo: No la tengo | 🔵 Azul: Ya la conseguí | 🟢 Verde: Repetida")
-    st.markdown(f"Gestiona las estampas de **{sigla}**.")[cite: 1, 2]
+    st.markdown(f"Gestiona las estampas de **{sigla}**.")
     codigos = obtener_codigos_por_equipo(sigla)
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).eq("team_code", sigla).execute()
     inv = {item['sticker_code']: item['quantity'] for item in res.data}
@@ -87,8 +89,8 @@ def vista_selecciones(sigla):
             if cb.button("➕", key=f"p_{cod}"): actualizar_db([cod], "sumar"); st.rerun()
 
 def vista_repetidas():
-    st.title("💎 Mis Repetidas y Apartados")[cite: 1]
-    st.markdown("Gestiona tus repetidas siguiendo el orden del álbum.")[cite: 1, 2]
+    st.title("💎 Mis Repetidas y Apartados")
+    st.markdown("Gestiona tus repetidas siguiendo el orden del álbum.")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).gt("quantity", 1).execute()
     if not res.data: st.info("No tienes repetidas actualmente.")
     else:
@@ -107,7 +109,7 @@ def vista_repetidas():
             st.divider()
 
 def vista_intercambios():
-    st.title("🤝 Centro de Intercambios")[cite: 1]
+    st.title("🤝 Centro de Intercambios")
     cl, cr = st.columns(2)
     with cl:
         st.subheader("📥 Recibo")
@@ -128,7 +130,7 @@ def vista_intercambios():
         st.rerun()
 
 def vista_exportar():
-    st.title("📥 Exportar Datos")[cite: 1]
+    st.title("📥 Exportar Datos")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     df_db = pd.DataFrame(res.data)
     
@@ -161,7 +163,7 @@ def vista_exportar():
         st.download_button("Descargar Repetidas (CSV)", df_r.to_csv(index=False), "repetidas.csv", "text/csv")
 
 def vista_ajustes():
-    st.title("⚙️ Ajustes de Cuenta")[cite: 1]
+    st.title("⚙️ Ajustes de Cuenta")
     with st.form("perfil"):
         st.subheader("Seguridad")
         nueva_p = st.text_input("Nueva Contraseña", type="password")
