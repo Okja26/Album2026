@@ -57,6 +57,41 @@ def actualizar_apartado(cod, delta):
             st.rerun()
 
 # --- VISTAS ---
+def login_seccion():
+    st.title("👋 ¡Bienvenido a tu Panini Tracker!")
+    st.markdown("""
+    Esta es tu puerta de entrada al álbum digital. Al crear una cuenta, tus estampas se 
+    sincronizan de forma segura en la nube, permitiéndote acceder desde cualquier dispositivo 
+    y comparar tus repetidas con amigos en tiempo real.
+    """)
+    
+    st.sidebar.title("🔐 Acceso")
+    tipo = st.sidebar.radio("¿Qué deseas hacer?", ["Iniciar Sesión", "Registrarse"])
+    
+    email = st.sidebar.text_input("Correo electrónico", key="email_txt")
+    password = st.sidebar.text_input("Contraseña", type="password", key="pass_txt")
+
+    if tipo == "Iniciar Sesión":
+        if st.sidebar.button("Entrar", use_container_width=True):
+            try:
+                res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                if res.user:
+                    st.session_state.user = res.user
+                    st.rerun()
+            except Exception:
+                st.sidebar.error("Credenciales incorrectas. Revisa tu correo o contraseña.")
+    else:
+        st.sidebar.info("La contraseña debe tener al menos 6 caracteres.")
+        if st.sidebar.button("Crear Cuenta", use_container_width=True):
+            try:
+                res = supabase.auth.sign_up({"email": email, "password": password})
+                if res.user:
+                    st.success("🎉 ¡Registro exitoso! Ya puedes comenzar a llenar tu álbum.")
+                    st.session_state.user = res.user
+                    st.rerun()
+            except Exception as e:
+                st.sidebar.error(f"Error al registrar: {e}")
+
 def vista_resumen():
     st.title("📊 Resumen del Álbum")
     st.markdown("Consulta el progreso global de tu colección.")
@@ -110,107 +145,76 @@ def vista_repetidas():
 
 def vista_intercambios():
     st.title("🤝 Centro de Intercambios")
-    st.markdown("Gestiona tus cambios manuales o compara tu colección con la de un amigo para encontrar coincidencias.")
+    st.markdown("Gestiona tus cambios manuales o compara tu colección con la de un amigo.")
     
     tab1, tab2 = st.tabs(["🔄 Registro de Intercambio", "🔍 Comparar con Amigo"])
     
     with tab1:
         st.subheader("Registrar Intercambio")
-        st.markdown("Agrega estampas a las listas y confirma para actualizar tu álbum automáticamente.")
         cl, cr = st.columns(2)
         with cl:
             st.subheader("📥 Recibo")
             eq_r = st.selectbox("Seleccionar Equipo", ORDEN_EQUIPOS, key="eq_r")
             cod_r = st.selectbox("Elegir Estampa", obtener_codigos_por_equipo(eq_r), key="cod_r")
-            if st.button("Añadir a Recibo"): 
-                st.session_state.carrito_recibir.append(cod_r)
+            if st.button("Añadir a Recibo"): st.session_state.carrito_recibir.append(cod_r)
             st.write(st.session_state.carrito_recibir)
             if st.button("Limpiar Recibos"): 
-                st.session_state.carrito_recibir = []
-                st.rerun()
-
+                st.session_state.carrito_recibir = []; st.rerun()
         with cr:
             st.subheader("📤 Entrego")
             eq_e = st.selectbox("Seleccionar Equipo ", ORDEN_EQUIPOS, key="eq_e")
             cod_e = st.selectbox("Elegir Estampa ", obtener_codigos_por_equipo(eq_e), key="cod_e")
-            if st.button("Añadir a Entrega"): 
-                st.session_state.carrito_entregar.append(cod_e)
+            if st.button("Añadir a Entrega"): st.session_state.carrito_entregar.append(cod_e)
             st.write(st.session_state.carrito_entregar)
             if st.button("Limpiar Entregas"): 
-                st.session_state.carrito_entregar = []
-                st.rerun()
-
+                st.session_state.carrito_entregar = []; st.rerun()
         if st.button("🚀 Ejecutar Intercambio", use_container_width=True):
-            if st.session_state.carrito_recibir or st.session_state.carrito_entregar:
-                actualizar_db(st.session_state.carrito_recibir, "sumar")
-                actualizar_db(st.session_state.carrito_entregar, "restar")
-                st.session_state.carrito_recibir, st.session_state.carrito_entregar = [], []
-                st.success("¡Álbum actualizado con éxito!")
-                st.rerun()
-            else:
-                st.warning("Los carritos están vacíos.")
+            actualizar_db(st.session_state.carrito_recibir, "sumar")
+            actualizar_db(st.session_state.carrito_entregar, "restar")
+            st.session_state.carrito_recibir, st.session_state.carrito_entregar = [], []
+            st.success("¡Álbum actualizado!"); st.rerun()
 
     with tab2:
         st.subheader("Comparar Colecciones")
-        st.info(f"Tu código de usuario para compartir: `{st.session_state.user.id}`")
+        st.info(f"Tu código para compartir: `{st.session_state.user.id}`")
         id_amigo = st.text_input("Pega el código de tu amigo aquí:")
-        
         if id_amigo:
-            if id_amigo == st.session_state.user.id:
-                st.warning("¡Ese es tu propio código!")
-            else:
-                try:
-                    # Obtener datos del usuario actual
-                    res_yo = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
-                    df_yo = pd.DataFrame(res_yo.data)
-                    mis_tengo = set(df_yo[df_yo['quantity'] > 0]['sticker_code']) if not df_yo.empty else set()
-                    mis_repetidas = set(df_yo[df_yo['quantity'] > 1]['sticker_code']) if not df_yo.empty else set()
+            try:
+                res_yo = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
+                df_yo = pd.DataFrame(res_yo.data)
+                mis_tengo = set(df_yo[df_yo['quantity'] > 0]['sticker_code']) if not df_yo.empty else set()
+                mis_repetidas = set(df_yo[df_yo['quantity'] > 1]['sticker_code']) if not df_yo.empty else set()
 
-                    # Obtener datos del amigo
-                    res_amigo = supabase.table("user_stickers").select("*").eq("user_id", id_amigo).execute()
-                    if not res_amigo.data:
-                        st.error("No se encontraron datos para ese código de amigo.")
-                    else:
-                        df_amigo = pd.DataFrame(res_amigo.data)
-                        amigo_tengo = set(df_amigo[df_amigo['quantity'] > 0]['sticker_code']) if not df_amigo.empty else set()
-                        amigo_repetidas = set(df_amigo[df_amigo['quantity'] > 1]['sticker_code']) if not df_amigo.empty else set()
+                res_amigo = supabase.table("user_stickers").select("*").eq("user_id", id_amigo).execute()
+                if res_amigo.data:
+                    df_amigo = pd.DataFrame(res_amigo.data)
+                    amigo_tengo = set(df_amigo[df_amigo['quantity'] > 0]['sticker_code']) if not df_amigo.empty else set()
+                    amigo_repetidas = set(df_amigo[df_amigo['quantity'] > 1]['sticker_code']) if not df_amigo.empty else set()
 
-                        # Lógica de cruce
-                        te_sirven = [r for r in amigo_repetidas if r not in mis_tengo]
-                        le_sirven = [r for r in mis_repetidas if r not in amigo_tengo]
+                    te_sirven = [r for r in amigo_repetidas if r not in mis_tengo]
+                    le_sirven = [r for r in mis_repetidas if r not in amigo_tengo]
 
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            st.success("🎁 Él tiene repetidas que te faltan:")
-                            if te_sirven:
-                                for s in sorted(te_sirven): st.write(f"✅ {s}")
-                            else:
-                                st.write("No hay coincidencias.")
-                        
-                        with col_b:
-                            st.warning("🤲 Tú tienes repetidas que le faltan:")
-                            if le_sirven:
-                                for s in sorted(le_sirven): st.write(f"💎 {s}")
-                            else:
-                                st.write("No hay coincidencias.")
-                except Exception as e:
-                    st.error(f"Error al comparar: {e}")
-                    
+                    ca, cb = st.columns(2)
+                    with ca:
+                        st.success("🎁 Él tiene para ti:")
+                        for s in sorted(te_sirven): st.write(f"✅ {s}")
+                    with cb:
+                        st.warning("🤲 Tú tienes para él:")
+                        for s in sorted(le_sirven): st.write(f"💎 {s}")
+                else: st.error("Amigo no encontrado.")
+            except: st.error("Error al comparar.")
+
 def vista_exportar():
     st.title("📥 Exportar Datos")
     st.markdown("Exporta tu lista de faltantes o repetidas en csv para compartirlas")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     df_db = pd.DataFrame(res.data)
-    
-    # 1. Faltantes Ordenadas
     pegadas = set(df_db[df_db['quantity'] > 0]['sticker_code']) if not df_db.empty else set()
     faltantes = []
     for team in ORDEN_EQUIPOS:
         for c in obtener_codigos_por_equipo(team):
             if c not in pegadas: faltantes.append({"Selección": team, "Código": c})
     df_f = pd.DataFrame(faltantes)
-    
-    # 2. Repetidas Ordenadas
     repetidas = []
     if not df_db.empty:
         df_r_raw = df_db[df_db['quantity'] > 1].copy()
@@ -247,12 +251,9 @@ def vista_ajustes():
 
 # --- NAVEGACIÓN ---
 if st.session_state.user is None:
-    st.title("Panini Tracker 2026")
-    e = st.text_input("Email"); p = st.text_input("Contraseña", type="password")
-    if st.button("Entrar"):
-        res = supabase.auth.sign_in_with_password({"email": e, "password": p})
-        if res.user: st.session_state.user = res.user; st.rerun()
+    login_seccion()
 else:
+    st.sidebar.write(f"👤 {st.session_state.user.email}")
     m = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "💎 Repetidas", "🤝 Intercambios", "📥 Exportar", "⚙️ Ajustes"])
     if m == "🏠 Resumen": vista_resumen()
     elif m == "🚩 Selecciones": vista_selecciones(st.sidebar.selectbox("Equipo", ORDEN_EQUIPOS))
@@ -260,4 +261,6 @@ else:
     elif m == "🤝 Intercambios": vista_intercambios()
     elif m == "📥 Exportar": vista_exportar()
     elif m == "⚙️ Ajustes": vista_ajustes()
-    if st.sidebar.button("Cerrar Sesión"): st.session_state.user = None; st.rerun()
+    if st.sidebar.button("Cerrar Sesión"): 
+        st.session_state.user = None
+        st.rerun()
