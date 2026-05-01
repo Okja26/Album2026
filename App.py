@@ -73,7 +73,7 @@ def vista_resumen():
 
 def vista_selecciones(sigla):
     st.title(f"⚽ Selección: {sigla}")
-    st.info("💡 **Leyenda:** 🔴 Rojo: No la tengo | 🔵 Azul: Ya la conseguí | 🟢 Verde: Repetida")
+    st.info("Aqui puedes gestionar tus estampas: 🔴 Rojo: No la tengo | 🔵 Azul: Ya la conseguí | 🟢 Verde: Repetida")
     st.markdown(f"Gestiona las estampas de **{sigla}**.")
     codigos = obtener_codigos_por_equipo(sigla)
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).eq("team_code", sigla).execute()
@@ -90,7 +90,7 @@ def vista_selecciones(sigla):
 
 def vista_repetidas():
     st.title("💎 Mis Repetidas y Apartados")
-    st.markdown("Gestiona tus repetidas siguiendo el orden del álbum.")
+    st.markdown("Gestiona tus repetidas Selecciona: 📌 para apartar tu estampa y 🗑️ para eliminarla de apartada")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).gt("quantity", 1).execute()
     if not res.data: st.info("No tienes repetidas actualmente.")
     else:
@@ -110,6 +110,7 @@ def vista_repetidas():
 
 def vista_intercambios():
     st.title("🤝 Centro de Intercambios")
+    st.markdown("Registra los intercambios que realices para actualizar tu album automaticamente")
     cl, cr = st.columns(2)
     with cl:
         st.subheader("📥 Recibo")
@@ -173,7 +174,7 @@ def vista_ajustes():
                 st.success("Contraseña actualizada.")
             except: st.error("Error al actualizar.")
     st.divider()
-    if st.button("🗑️ Eliminar todos mis datos de estampas", type="primary"):
+    if st.button("🗑️ Eliminar todos mis datos", type="primary"):
         supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute()
         st.warning("Datos eliminados."); st.rerun()
 
