@@ -132,6 +132,7 @@ def vista_intercambios():
 
 def vista_exportar():
     st.title("📥 Exportar Datos")
+    st.markdown("Exporta tu lista de faltantes o repetidas en csv para compartirlas")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     df_db = pd.DataFrame(res.data)
     
