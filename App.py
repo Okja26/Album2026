@@ -3,8 +3,6 @@ from supabase import create_client, Client
 import pandas as pd
 import plotly.express as px
 
-# 1. CONEXIÓN A SUPABASE
-# Asegúrate de tener SUPABASE_URL y SUPABASE_KEY en tus Secrets de Streamlit
 url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
