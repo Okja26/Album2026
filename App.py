@@ -58,8 +58,8 @@ def actualizar_apartado(cod, delta):
 
 # --- VISTAS ---
 def vista_resumen():
-    st.title("📊 Resumen del Álbum")
-    st.markdown("Consulta el progreso global de tu colección. Los datos se calculan automáticamente según el orden oficial.")
+    st.title("📊 Resumen del Álbum")[cite: 1]
+    st.markdown("Consulta el progreso global de tu colección.")[cite: 1, 2]
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     df = pd.DataFrame(res.data)
     total = sum([v + (1 if k=='FWC' else 0) for k, v in CONFIG_ALBUM.items()])
@@ -69,8 +69,10 @@ def vista_resumen():
     st.plotly_chart(fig, use_container_width=True)
 
 def vista_selecciones(sigla):
-    st.title(f"⚽ Selección: {sigla}")
-    st.markdown(f"Gestiona las estampas de **{sigla}**. Usa los botones para aumentar o disminuir tu inventario.")
+    st.title(f"⚽ Selección: {sigla}")[cite: 1]
+    # Leyenda de colores solicitada
+    st.info("💡 **Leyenda:** 🔴 Rojo: No la tengo | 🔵 Azul: Ya la conseguí | 🟢 Verde: Repetida")
+    st.markdown(f"Gestiona las estampas de **{sigla}**.")[cite: 1, 2]
     codigos = obtener_codigos_por_equipo(sigla)
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).eq("team_code", sigla).execute()
     inv = {item['sticker_code']: item['quantity'] for item in res.data}
@@ -85,8 +87,8 @@ def vista_selecciones(sigla):
             if cb.button("➕", key=f"p_{cod}"): actualizar_db([cod], "sumar"); st.rerun()
 
 def vista_repetidas():
-    st.title("💎 Mis Repetidas y Apartados")
-    st.markdown("Aquí aparecen las estampas que tienes más de una vez. Usa 📌 para apartarlas si ya las prometiste en un cambio.")
+    st.title("💎 Mis Repetidas y Apartados")[cite: 1]
+    st.markdown("Gestiona tus repetidas siguiendo el orden del álbum.")[cite: 1, 2]
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).gt("quantity", 1).execute()
     if not res.data: st.info("No tienes repetidas actualmente.")
     else:
@@ -96,7 +98,7 @@ def vista_repetidas():
         for _, row in df.iterrows():
             c1, c2, c3, c4 = st.columns([1,2,2,1])
             c1.write(f"**{row['sticker_code']}**")
-            c2.write(f"Disponibles: {(row['quantity']-1)-(row['reserved'] or 0)}")
+            c2.write(f"Libres: {(row['quantity']-1)-(row['reserved'] or 0)}")
             c3.write(f"Apartadas: {row['reserved'] or 0}")
             with c4:
                 sub1, sub2 = st.columns(2)
@@ -105,70 +107,87 @@ def vista_repetidas():
             st.divider()
 
 def vista_intercambios():
-    st.title("🤝 Centro de Intercambios")
-    st.markdown("Registra intercambios rápidamente. Agrega las estampas a las listas y confirma para actualizar tu álbum.")
+    st.title("🤝 Centro de Intercambios")[cite: 1]
     cl, cr = st.columns(2)
     with cl:
         st.subheader("📥 Recibo")
         eq_r = st.selectbox("Seleccionar Equipo", ORDEN_EQUIPOS, key="eq_r")
         cod_r = st.selectbox("Elegir Estampa", obtener_codigos_por_equipo(eq_r), key="cod_r")
-        if st.button("Añadir a lista de Recibo"): st.session_state.carrito_recibir.append(cod_r)
+        if st.button("Añadir a Recibo"): st.session_state.carrito_recibir.append(cod_r)
         st.write(st.session_state.carrito_recibir)
-        if st.button("Limpiar Recibos"): st.session_state.carrito_recibir = []
     with cr:
         st.subheader("📤 Entrego")
         eq_e = st.selectbox("Seleccionar Equipo ", ORDEN_EQUIPOS, key="eq_e")
         cod_e = st.selectbox("Elegir Estampa ", obtener_codigos_por_equipo(eq_e), key="cod_e")
-        if st.button("Añadir a lista de Entrega"): st.session_state.carrito_entregar.append(cod_e)
+        if st.button("Añadir a Entrega"): st.session_state.carrito_entregar.append(cod_e)
         st.write(st.session_state.carrito_entregar)
-        if st.button("Limpiar Entregas"): st.session_state.carrito_entregar = []
-    
-    st.divider()
-    if st.button("🚀 Ejecutar Intercambio Completo", use_container_width=True):
+    if st.button("🚀 Ejecutar Intercambio", use_container_width=True):
         actualizar_db(st.session_state.carrito_recibir, "sumar")
         actualizar_db(st.session_state.carrito_entregar, "restar")
         st.session_state.carrito_recibir, st.session_state.carrito_entregar = [], []
-        st.success("¡Inventario actualizado!"); st.rerun()
+        st.rerun()
 
 def vista_exportar():
-    st.title("📥 Exportar Datos")
-    st.markdown("Descarga tu lista de faltantes en formato CSV para compartirla con otros coleccionistas.")
+    st.title("📥 Exportar Datos")[cite: 1]
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     df_db = pd.DataFrame(res.data)
+    
+    # 1. Faltantes Ordenadas
     pegadas = set(df_db[df_db['quantity'] > 0]['sticker_code']) if not df_db.empty else set()
     faltantes = []
     for team in ORDEN_EQUIPOS:
         for c in obtener_codigos_por_equipo(team):
             if c not in pegadas: faltantes.append({"Selección": team, "Código": c})
     df_f = pd.DataFrame(faltantes)
-    st.subheader("Lista de Faltantes (Ordenada)")
-    st.dataframe(df_f, use_container_width=True)
-    st.download_button("📥 Descargar CSV", df_f.to_csv(index=False), "mis_faltantes.csv", "text/csv")
+    
+    # 2. Repetidas Ordenadas
+    repetidas = []
+    if not df_db.empty:
+        df_r_raw = df_db[df_db['quantity'] > 1].copy()
+        df_r_raw['orden'] = df_r_raw['team_code'].apply(lambda x: ORDEN_EQUIPOS.index(x))
+        df_r_raw = df_r_raw.sort_values(['orden', 'sticker_code'])
+        for _, row in df_r_raw.iterrows():
+            repetidas.append({"Selección": row['team_code'], "Código": row['sticker_code'], "Cantidad Extra": row['quantity']-1})
+    df_r = pd.DataFrame(repetidas)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🚩 Mis Faltantes")
+        st.dataframe(df_f, use_container_width=True)
+        st.download_button("Descargar Faltantes (CSV)", df_f.to_csv(index=False), "faltantes.csv", "text/csv")
+    with col2:
+        st.subheader("💎 Mis Repetidas")
+        st.dataframe(df_r, use_container_width=True)
+        st.download_button("Descargar Repetidas (CSV)", df_r.to_csv(index=False), "repetidas.csv", "text/csv")
+
+def vista_ajustes():
+    st.title("⚙️ Ajustes de Cuenta")[cite: 1]
+    with st.form("perfil"):
+        st.subheader("Seguridad")
+        nueva_p = st.text_input("Nueva Contraseña", type="password")
+        if st.form_submit_button("Actualizar Contraseña"):
+            try:
+                supabase.auth.update_user({"password": nueva_p})
+                st.success("Contraseña actualizada.")
+            except: st.error("Error al actualizar.")
+    st.divider()
+    if st.button("🗑️ Eliminar todos mis datos de estampas", type="primary"):
+        supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute()
+        st.warning("Datos eliminados."); st.rerun()
 
 # --- NAVEGACIÓN ---
 if st.session_state.user is None:
     st.title("Panini Tracker 2026")
-    e = st.text_input("Correo electrónico")
-    p = st.text_input("Contraseña", type="password")
+    e = st.text_input("Email"); p = st.text_input("Contraseña", type="password")
     if st.button("Entrar"):
-        try:
-            res = supabase.auth.sign_in_with_password({"email": e, "password": p})
-            if res.user: st.session_state.user = res.user; st.rerun()
-        except: st.error("Error de autenticación")
+        res = supabase.auth.sign_in_with_password({"email": e, "password": p})
+        if res.user: st.session_state.user = res.user; st.rerun()
 else:
-    st.sidebar.title("Menú")
-    m = st.sidebar.radio("Ir a:", ["🏠 Resumen", "🚩 Selecciones", "💎 Repetidas", "🤝 Intercambios", "📥 Exportar"])
-    
+    m = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "💎 Repetidas", "🤝 Intercambios", "📥 Exportar", "⚙️ Ajustes"])
     if m == "🏠 Resumen": vista_resumen()
-    elif m == "🚩 Selecciones": 
-        equipo_sel = st.sidebar.selectbox("Seleccionar Equipo", ORDEN_EQUIPOS)
-        vista_selecciones(equipo_sel)
+    elif m == "🚩 Selecciones": vista_selecciones(st.sidebar.selectbox("Equipo", ORDEN_EQUIPOS))
     elif m == "💎 Repetidas": vista_repetidas()
     elif m == "🤝 Intercambios": vista_intercambios()
     elif m == "📥 Exportar": vista_exportar()
-    
-    if st.sidebar.button("Cerrar Sesión"): 
-        st.session_state.user = None
-        st.rerun()
-        # (Ajustes)
-        pass
+    elif m == "⚙️ Ajustes": vista_ajustes()
+    if st.sidebar.button("Cerrar Sesión"): st.session_state.user = None; st.rerun()
