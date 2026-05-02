@@ -105,22 +105,28 @@ def vista_selecciones(sigla):
 
 def vista_repetidas():
     st.title("💎 Gestión de Apartados")
-    st.markdown("Usa esta sección para asignar repetidas a amigos específicos[cite: 1].")
+    st.markdown("Usa esta sección para asignar repetidas a amigos específicos.")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).gt("quantity", 1).execute()
-    if not res.data: st.info("No tienes repetidas actualmente[cite: 1].")
+    if not res.data: 
+        st.info("No tienes repetidas actualmente.")
     else:
         df = pd.DataFrame(res.data).sort_values(['team_code', 'sticker_code'])
         for _, row in df.iterrows():
-            with st.expander(f"Estampa {row['sticker_code']} (Libres: {(row['quantity']-1)-(row['reserved'] or 0)})"):
+            # Validación de seguridad para el nombre
+            destinatario = row['reserved_to'] if row['reserved_to'] else "alguien"
+            
+            with st.expander(f"Estampa {row['sticker_code']} (Libres: {int((row['quantity']-1)-(row['reserved'] or 0))})"):
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.write(f"**Estado:** {'Apartada para ' + row['reserved_to'] if row['reserved'] > 0 else 'Disponible'}")
+                    texto_estado = f"Apartada para {destinatario}" if row['reserved'] > 0 else "Disponible"
+                    st.write(f"**Estado:** {texto_estado}")
                 with c2:
                     nombre = st.text_input("Apartar para:", key=f"n_{row['sticker_code']}", value=row['reserved_to'] or "")
                     sub1, sub2 = st.columns(2)
-                    if sub1.button("📌 Apartar", key=f"a_{row['sticker_code']}"): guardar_apartado(row['sticker_code'], 1, nombre)
-                    if sub2.button("🗑️ Liberar", key=f"l_{row['sticker_code']}"): guardar_apartado(row['sticker_code'], -1)
-
+                    if sub1.button("📌 Apartar", key=f"a_{row['sticker_code']}"): 
+                        guardar_apartado(row['sticker_code'], 1, nombre)
+                    if sub2.button("🗑️ Liberar", key=f"l_{row['sticker_code']}"): 
+                        guardar_apartado(row['sticker_code'], -1)
 def vista_intercambios():
     st.title("🤝 Centro de Intercambios")
     t1, t2 = st.tabs(["🔄 Registro", "🔍 Comparar"])
