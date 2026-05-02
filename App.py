@@ -8,7 +8,7 @@ url = st.secrets["SUPABASE_URL"]
 key = st.secrets["SUPABASE_KEY"]
 supabase: Client = create_client(url, key)
 
-# --- CONFIGURACIÓN Y ORDEN OFICIAL ---
+# --- CONFIGURACIÓN ---
 CONFIG_ALBUM = {
     'FWC': 19, 'MEX': 20, 'RSA': 20, 'KOR': 20, 'CZE': 20, 'CAN': 20,
     'BIH': 20, 'QAT': 20, 'SUI': 20, 'BRA': 20, 'MAR': 20, 'HAI': 20,
@@ -26,9 +26,12 @@ COLORS = {"Falta": "#FF4B4B", "Tengo": "#14A8FD", "Repetida": "#51D153"}
 st.set_page_config(page_title="Panini Hub 2026", layout="wide")
 
 # --- ESTADO DE SESIÓN ---
-if 'user' not in st.session_state: st.session_state.user = None
-if 'carrito_recibir' not in st.session_state: st.session_state.carrito_recibir = []
-if 'carrito_entregar' not in st.session_state: st.session_state.carrito_entregar = []
+if 'user' not in st.session_state:
+    st.session_state.user = None
+if 'carrito_recibir' not in st.session_state:
+    st.session_state.carrito_recibir = []
+if 'carrito_entregar' not in st.session_state:
+    st.session_state.carrito_entregar = []
 
 # --- UTILIDADES ---
 def obtener_codigos_por_equipo(sigla):
@@ -44,39 +47,49 @@ def actualizar_db(lista_codigos, operacion):
         equipo_sigla = "".join([c for c in cod if c.isalpha()]) if cod != '00' else 'FWC'
         actual, team = inv.get(cod, (0, equipo_sigla))
         nueva_cant = actual + 1 if operacion == "sumar" else max(0, actual - 1)
-        
         update_data = {"user_id": st.session_state.user.id, "sticker_code": cod, "team_code": team, "quantity": nueva_cant}
         if operacion == "restar":
             update_data["reserved"] = 0
             update_data["reserved_to"] = None
         supabase.table("user_stickers").upsert(update_data, on_conflict="user_id,sticker_code").execute()
 
-
-def guardar_apartado(cod, delta, nombre=None):
-    res = supabase.table("user_stickers").select("quantity, reserved, reserved_to").eq("user_id", st.session_state.user.id).eq("sticker_code", cod).execute()
-    if res.data:
-        q, r = res.data[0]['quantity'], res.data[0]['reserved'] or 0
-        nuevo_r = max(0, r + delta)
-        if nuevo_r < q:
-            supabase.table("user_stickers").update({"reserved": nuevo_r, "reserved_to": nombre if delta > 0 else None}).eq("user_id", st.session_state.user.id).eq("sticker_code", cod).execute()
-            st.rerun()
+def guardar_apartado(cod, delta, nombre=None, reset_all=False):
+    if reset_all:
+        supabase.table("user_stickers").update({"reserved": 0, "reserved_to": None}).eq("user_id", st.session_state.user.id).eq("sticker_code", cod).execute()
+    else:
+        res = supabase.table("user_stickers").select("quantity, reserved").eq("user_id", st.session_state.user.id).eq("sticker_code", cod).execute()
+        if res.data:
+            q, r = res.data[0]['quantity'], res.data[0]['reserved'] or 0
+            nuevo_r = max(0, r + delta)
+            if nuevo_r < q:
+                supabase.table("user_stickers").update({"reserved": nuevo_r, "reserved_to": nombre if nuevo_r > 0 else None}).eq("user_id", st.session_state.user.id).eq("sticker_code", cod).execute()
+    st.rerun()
 
 # --- VISTAS ---
 def login_seccion():
     st.title("👋 ¡Bienvenido a tu Panini Tracker!")
     st.markdown("Inicia sesión para sincronizar tu álbum y gestionar tus apartados por amigo.")
+    
     tipo = st.sidebar.radio("¿Qué deseas hacer?", ["Iniciar Sesión", "Registrarse"])
-    email = st.sidebar.text_input("Correo electrónico", key="email_txt")
-    password = st.sidebar.text_input("Contraseña", type="password", key="pass_txt")
+    email = st.sidebar.text_input("Correo electrónico")
+    password = st.sidebar.text_input("Contraseña", type="password")
+
     if st.sidebar.button("Confirmar", use_container_width=True):
-        try:
-            if tipo == "Iniciar Sesión":
-                res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-            else:
-                res = supabase.auth.sign_up({"email": email, "password": password})
-                st.success("🎉 ¡Registro exitoso!")
-            if res.user: st.session_state.user = res.user; st.rerun()
-        except: st.sidebar.error("Error en las credenciales.")
+        if email and password:
+            try:
+                if tipo == "Iniciar Sesión":
+                    response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                else:
+                    response = supabase.auth.sign_up({"email": email, "password": password})
+                    st.success("🎉 ¡Registro exitoso!")
+                
+                if response.user:
+                    st.session_state.user = response.user
+                    st.rerun() # Esto ahora funcionará al primer intento
+            except Exception as e:
+                st.sidebar.error("Error: Verifica tus credenciales o conexión.")
+        else:
+            st.sidebar.warning("Por favor completa todos los campos[cite: 1].")
 
 def vista_resumen():
     st.title("📊 Resumen del Álbum")
@@ -90,7 +103,7 @@ def vista_resumen():
 
 def vista_selecciones(sigla):
     st.title(f"⚽ Selección: {sigla}")
-    st.info("🔴 Falta | 🔵 Tengo | 🟢 Repetida")
+    st.info("🔴 Falta | 🔵 Tengo | 🟢 Repetida[cite: 1]")
     codigos = obtener_codigos_por_equipo(sigla)
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).eq("team_code", sigla).execute()
     inv = {item['sticker_code']: item['quantity'] for item in res.data}
@@ -106,58 +119,37 @@ def vista_selecciones(sigla):
 
 def vista_repetidas():
     st.title("💎 Gestión de Repetidas")
-    st.markdown("Organizadas por selección. Solo aparecen los equipos donde tienes duplicados.")
-    
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).gt("quantity", 1).execute()
-    
     if not res.data:
-        st.info("No tienes repetidas actualmente.")
+        st.info("No tienes repetidas actualmente[cite: 1].")
         return
-
     df = pd.DataFrame(res.data)
-    # Ordenar por el orden oficial del álbum
     df['orden_equipo'] = df['team_code'].apply(lambda x: ORDEN_EQUIPOS.index(x))
     df = df.sort_values(['orden_equipo', 'sticker_code'])
-
-    # Agrupación por Selección
-    equipos_con_repetidas = df['team_code'].unique()
-    
-    for equipo in equipos_con_repetidas:
+    for equipo in df['team_code'].unique():
         with st.container():
             st.subheader(f"⚽ {equipo}")
             stickers_equipo = df[df['team_code'] == equipo]
-            
             for _, row in stickers_equipo.iterrows():
                 with st.expander(f"Estampa {row['sticker_code']} (Libres: {int((row['quantity']-1)-(row['reserved'] or 0))})"):
                     c1, c2 = st.columns(2)
                     with c1:
                         destinatario = str(row['reserved_to']) if row['reserved_to'] else "Disponible"
                         st.write(f"**Estado:** {'Apartada para ' + destinatario if row['reserved'] > 0 else destinatario}")
-                        st.write(f"**Cantidad apartada:** {row['reserved'] or 0}")
-                    
                     with c2:
                         nombre = st.text_input("Apartar para:", key=f"n_{row['sticker_code']}", value=row['reserved_to'] or "")
-                        btn_col1, btn_col2, btn_col3 = st.columns(3)
-                        
-                        if btn_col1.button("📌 +1", key=f"a_{row['sticker_code']}", help="Apartar una"):
-                            guardar_apartado(row['sticker_code'], 1, nombre)
-                        
-                        if btn_col2.button("🗑️ -1", key=f"l_{row['sticker_code']}", help="Quitar una del apartado"):
-                            guardar_apartado(row['sticker_code'], -1)
-                        
-                        if btn_col3.button("❌ Todo", key=f"reset_{row['sticker_code']}", help="Liberar todos los apartados de esta estampa"):
-                            guardar_apartado(row['sticker_code'], 0, reset_all=True)
+                        b1, b2, b3 = st.columns(3)
+                        if b1.button("📌 +1", key=f"a_{row['sticker_code']}"): guardar_apartado(row['sticker_code'], 1, nombre)
+                        if b2.button("🗑️ -1", key=f"l_{row['sticker_code']}"): guardar_apartado(row['sticker_code'], -1)
+                        if b3.button("❌ Todo", key=f"reset_{row['sticker_code']}"): guardar_apartado(row['sticker_code'], 0, reset_all=True)
             st.divider()
-
 
 def vista_intercambios():
     st.title("🤝 Centro de Intercambios")
     t1, t2 = st.tabs(["🔄 Registro", "🔍 Comparar"])
-    
     with t1:
         res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
         df_inv = pd.DataFrame(res.data) if res.data else pd.DataFrame()
-        
         cl, cr = st.columns(2)
         with cl:
             st.subheader("📥 Recibo")
@@ -167,57 +159,53 @@ def vista_intercambios():
             for i, item in enumerate(st.session_state.carrito_recibir):
                 st.write(f"✅ {item}")
                 if st.button("X", key=f"dr_{i}"): st.session_state.carrito_recibir.pop(i); st.rerun()
-
         with cr:
             st.subheader("📤 Entrego")
             if not df_inv.empty:
                 amigos = df_inv[df_inv['reserved'] > 0]['reserved_to'].unique().tolist()
                 if amigos:
-                    amigo_sel = st.selectbox("Cargar apartados de:", amigos)
+                    amigo_sel = st.selectbox("Cargar apartados de:", [a for a in amigos if a], key="sel_amigo")
                     if st.button(f"Añadir todas las de {amigo_sel}"):
                         estampas = df_inv[df_inv['reserved_to'] == amigo_sel]['sticker_code'].tolist()
                         st.session_state.carrito_entregar.extend(estampas)
                         st.rerun()
-            
             st.divider()
-            lista_txt = st.text_input("Pegar lista manual (ej: MEX1, MEX2):")
+            lista_txt = st.text_input("Lista manual (comas):")
             if st.button("Añadir lista"):
                 st.session_state.carrito_entregar.extend([x.strip().upper() for x in lista_txt.split(",") if x])
                 st.rerun()
-
             for i, item in enumerate(st.session_state.carrito_entregar):
                 st.write(f"💎 {item}")
                 if st.button("X", key=f"de_{i}"): st.session_state.carrito_entregar.pop(i); st.rerun()
-
         if st.button("🚀 Confirmar Intercambio", use_container_width=True):
             actualizar_db(st.session_state.carrito_recibir, "sumar")
             actualizar_db(st.session_state.carrito_entregar, "restar")
             st.session_state.carrito_recibir, st.session_state.carrito_entregar = [], []
-            st.success("¡Álbum actualizado y apartados liberados!")
+            st.success("¡Álbum actualizado![cite: 1]")
             st.rerun()
 
-    with t2:
-        st.info(f"Comparte tu código: `{st.session_state.user.id}`")
-        id_amigo = st.text_input("ID Amigo:")
-        if id_amigo:
-            # (Lógica de comparación ya definida anteriormente)
-            pass
-
 def vista_exportar():
-    st.title("📥 Exportar Datos")
+    st.title("📥 Exportar")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
-    df_db = pd.DataFrame(res.data)
-    pegadas = set(df_db[df_db['quantity'] > 0]['sticker_code']) if not df_db.empty else set()
-    faltantes = [{"Selección": t, "Código": c} for t in ORDEN_EQUIPOS for c in obtener_codigos_por_equipo(t) if c not in pegadas]
-    st.download_button("Descargar Faltantes (CSV)", pd.DataFrame(faltantes).to_csv(index=False), "faltantes.csv")
+    df = pd.DataFrame(res.data)
+    st.download_button("Descargar mi álbum (CSV)", df.to_csv(index=False), "mi_album.csv")
 
 def vista_ajustes():
     st.title("⚙️ Ajustes")
-    if st.button("Borrar todo mi progreso", type="primary"):
+    if st.button("🗑️ Borrar todo mi progreso", type="primary"):
         supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute()
         st.rerun()
 
 # --- NAVEGACIÓN ---
+# Intentar recuperar sesión existente de Supabase al cargar la app
+if st.session_state.user is None:
+    try:
+        session = supabase.auth.get_session()
+        if session and session.user:
+            st.session_state.user = session.user
+    except:
+        pass
+
 if st.session_state.user is None:
     login_seccion()
 else:
@@ -229,4 +217,7 @@ else:
     elif m == "🤝 Intercambios": vista_intercambios()
     elif m == "📥 Exportar": vista_exportar()
     elif m == "⚙️ Ajustes": vista_ajustes()
-    if st.sidebar.button("Cerrar Sesión"): st.session_state.user = None; st.rerun()
+    if st.sidebar.button("Cerrar Sesión"): 
+        supabase.auth.sign_out()
+        st.session_state.user = None
+        st.rerun()
