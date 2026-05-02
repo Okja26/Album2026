@@ -51,6 +51,7 @@ def actualizar_db(lista_codigos, operacion):
             update_data["reserved_to"] = None
         supabase.table("user_stickers").upsert(update_data, on_conflict="user_id,sticker_code").execute()
 
+
 def guardar_apartado(cod, delta, nombre=None):
     res = supabase.table("user_stickers").select("quantity, reserved, reserved_to").eq("user_id", st.session_state.user.id).eq("sticker_code", cod).execute()
     if res.data:
