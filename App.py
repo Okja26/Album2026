@@ -63,7 +63,7 @@ def guardar_apartado(cod, delta, nombre=None):
 # --- VISTAS ---
 def login_seccion():
     st.title("👋 ¡Bienvenido a tu Panini Tracker!")
-    st.markdown("Inicia sesión para sincronizar tu álbum y gestionar tus apartados por amigo[cite: 1, 2].")
+    st.markdown("Inicia sesión para sincronizar tu álbum y gestionar tus apartados por amigo.")
     tipo = st.sidebar.radio("¿Qué deseas hacer?", ["Iniciar Sesión", "Registrarse"])
     email = st.sidebar.text_input("Correo electrónico", key="email_txt")
     password = st.sidebar.text_input("Contraseña", type="password", key="pass_txt")
@@ -73,9 +73,9 @@ def login_seccion():
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
             else:
                 res = supabase.auth.sign_up({"email": email, "password": password})
-                st.success("🎉 ¡Registro exitoso![cite: 1]")
+                st.success("🎉 ¡Registro exitoso!")
             if res.user: st.session_state.user = res.user; st.rerun()
-        except: st.sidebar.error("Error en las credenciales[cite: 1].")
+        except: st.sidebar.error("Error en las credenciales.")
 
 def vista_resumen():
     st.title("📊 Resumen del Álbum")
@@ -89,7 +89,7 @@ def vista_resumen():
 
 def vista_selecciones(sigla):
     st.title(f"⚽ Selección: {sigla}")
-    st.info("🔴 Falta | 🔵 Tengo | 🟢 Repetida[cite: 1]")
+    st.info("🔴 Falta | 🔵 Tengo | 🟢 Repetida")
     codigos = obtener_codigos_por_equipo(sigla)
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).eq("team_code", sigla).execute()
     inv = {item['sticker_code']: item['quantity'] for item in res.data}
@@ -192,7 +192,7 @@ def vista_intercambios():
             actualizar_db(st.session_state.carrito_recibir, "sumar")
             actualizar_db(st.session_state.carrito_entregar, "restar")
             st.session_state.carrito_recibir, st.session_state.carrito_entregar = [], []
-            st.success("¡Álbum actualizado y apartados liberados![cite: 1]")
+            st.success("¡Álbum actualizado y apartados liberados!")
             st.rerun()
 
     with t2:
