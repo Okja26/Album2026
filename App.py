@@ -104,29 +104,51 @@ def vista_selecciones(sigla):
             if cb.button("➕", key=f"p_{cod}"): actualizar_db([cod], "sumar"); st.rerun()
 
 def vista_repetidas():
-    st.title("💎 Gestión de Apartados")
-    st.markdown("Usa esta sección para asignar repetidas a amigos específicos.")
+    st.title("💎 Gestión de Repetidas")
+    st.markdown("Organizadas por selección. Solo aparecen los equipos donde tienes duplicados.")
+    
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).gt("quantity", 1).execute()
-    if not res.data: 
+    
+    if not res.data:
         st.info("No tienes repetidas actualmente.")
-    else:
-        df = pd.DataFrame(res.data).sort_values(['team_code', 'sticker_code'])
-        for _, row in df.iterrows():
-            # Validación de seguridad para el nombre
-            destinatario = row['reserved_to'] if row['reserved_to'] else "alguien"
+        return
+
+    df = pd.DataFrame(res.data)
+    # Ordenar por el orden oficial del álbum
+    df['orden_equipo'] = df['team_code'].apply(lambda x: ORDEN_EQUIPOS.index(x))
+    df = df.sort_values(['orden_equipo', 'sticker_code'])
+
+    # Agrupación por Selección
+    equipos_con_repetidas = df['team_code'].unique()
+    
+    for equipo in equipos_con_repetidas:
+        with st.container():
+            st.subheader(f"⚽ {equipo}")
+            stickers_equipo = df[df['team_code'] == equipo]
             
-            with st.expander(f"Estampa {row['sticker_code']} (Libres: {int((row['quantity']-1)-(row['reserved'] or 0))})"):
-                c1, c2 = st.columns(2)
-                with c1:
-                    texto_estado = f"Apartada para {destinatario}" if row['reserved'] > 0 else "Disponible"
-                    st.write(f"**Estado:** {texto_estado}")
-                with c2:
-                    nombre = st.text_input("Apartar para:", key=f"n_{row['sticker_code']}", value=row['reserved_to'] or "")
-                    sub1, sub2 = st.columns(2)
-                    if sub1.button("📌 Apartar", key=f"a_{row['sticker_code']}"): 
-                        guardar_apartado(row['sticker_code'], 1, nombre)
-                    if sub2.button("🗑️ Liberar", key=f"l_{row['sticker_code']}"): 
-                        guardar_apartado(row['sticker_code'], -1)
+            for _, row in stickers_equipo.iterrows():
+                with st.expander(f"Estampa {row['sticker_code']} (Libres: {int((row['quantity']-1)-(row['reserved'] or 0))})"):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        destinatario = str(row['reserved_to']) if row['reserved_to'] else "Disponible"
+                        st.write(f"**Estado:** {'Apartada para ' + destinatario if row['reserved'] > 0 else destinatario}")
+                        st.write(f"**Cantidad apartada:** {row['reserved'] or 0}")
+                    
+                    with c2:
+                        nombre = st.text_input("Apartar para:", key=f"n_{row['sticker_code']}", value=row['reserved_to'] or "")
+                        btn_col1, btn_col2, btn_col3 = st.columns(3)
+                        
+                        if btn_col1.button("📌 +1", key=f"a_{row['sticker_code']}", help="Apartar una"):
+                            guardar_apartado(row['sticker_code'], 1, nombre)
+                        
+                        if btn_col2.button("🗑️ -1", key=f"l_{row['sticker_code']}", help="Quitar una del apartado"):
+                            guardar_apartado(row['sticker_code'], -1)
+                        
+                        if btn_col3.button("❌ Todo", key=f"reset_{row['sticker_code']}", help="Liberar todos los apartados de esta estampa"):
+                            guardar_apartado(row['sticker_code'], 0, reset_all=True)
+            st.divider()
+
+
 def vista_intercambios():
     st.title("🤝 Centro de Intercambios")
     t1, t2 = st.tabs(["🔄 Registro", "🔍 Comparar"])
