@@ -2,6 +2,7 @@ import streamlit as st
 from supabase import create_client, Client
 import pandas as pd
 import plotly.express as px
+import io
 
 # 1. CONEXIÓN A SUPABASE
 url = st.secrets["SUPABASE_URL"]
@@ -26,12 +27,9 @@ COLORS = {"Falta": "#FF4B4B", "Tengo": "#14A8FD", "Repetida": "#51D153"}
 st.set_page_config(page_title="Panini Hub 2026", layout="wide")
 
 # --- ESTADO DE SESIÓN ---
-if 'user' not in st.session_state:
-    st.session_state.user = None
-if 'carrito_recibir' not in st.session_state:
-    st.session_state.carrito_recibir = []
-if 'carrito_entregar' not in st.session_state:
-    st.session_state.carrito_entregar = []
+if 'user' not in st.session_state: st.session_state.user = None
+if 'carrito_recibir' not in st.session_state: st.session_state.carrito_recibir = []
+if 'carrito_entregar' not in st.session_state: st.session_state.carrito_entregar = []
 
 # --- UTILIDADES ---
 def obtener_codigos_por_equipo(sigla):
@@ -68,28 +66,20 @@ def guardar_apartado(cod, delta, nombre=None, reset_all=False):
 # --- VISTAS ---
 def login_seccion():
     st.title("👋 ¡Bienvenido a tu Panini Tracker!")
-    st.markdown("Inicia sesión para sincronizar tu álbum y gestionar tus apartados por amigo.")
-    
     tipo = st.sidebar.radio("¿Qué deseas hacer?", ["Iniciar Sesión", "Registrarse"])
     email = st.sidebar.text_input("Correo electrónico")
     password = st.sidebar.text_input("Contraseña", type="password")
-
     if st.sidebar.button("Confirmar", use_container_width=True):
-        if email and password:
-            try:
-                if tipo == "Iniciar Sesión":
-                    response = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                else:
-                    response = supabase.auth.sign_up({"email": email, "password": password})
-                    st.success("🎉 ¡Registro exitoso!")
-                
-                if response.user:
-                    st.session_state.user = response.user
-                    st.rerun() # Esto ahora funcionará al primer intento
-            except Exception as e:
-                st.sidebar.error("Error: Verifica tus credenciales o conexión.")
-        else:
-            st.sidebar.warning("Por favor completa todos los campos[cite: 1].")
+        try:
+            if tipo == "Iniciar Sesión":
+                response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+            else:
+                response = supabase.auth.sign_up({"email": email, "password": password})
+                st.success("🎉 ¡Registro exitoso![cite: 1]")
+            if response.user:
+                st.session_state.user = response.user
+                st.rerun()
+        except: st.sidebar.error("Error en las credenciales[cite: 1].")
 
 def vista_resumen():
     st.title("📊 Resumen del Álbum")
@@ -185,10 +175,66 @@ def vista_intercambios():
             st.rerun()
 
 def vista_exportar():
-    st.title("📥 Exportar")
+    st.title("📥 Exportar Datos")
+    st.markdown("Genera listas ordenadas de tu colección en formato Excel o CSV[cite: 1].")
+    
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
-    df = pd.DataFrame(res.data)
-    st.download_button("Descargar mi álbum (CSV)", df.to_csv(index=False), "mi_album.csv")
+    df_db = pd.DataFrame(res.data)
+    
+    # Filtro para las repetidas[cite: 1, 2]
+    quitar_apartados = st.toggle("Ocultar estampas apartadas de la exportación", value=False)
+    
+    # 1. Faltantes Ordenadas[cite: 1]
+    pegadas = set(df_db[df_db['quantity'] > 0]['sticker_code']) if not df_db.empty else set()
+    faltantes = []
+    for team in ORDEN_EQUIPOS:
+        for c in obtener_codigos_por_equipo(team):
+            if c not in pegadas: faltantes.append({"Selección": team, "Código": c})
+    df_f = pd.DataFrame(faltantes)
+    
+    # 2. Repetidas Ordenadas[cite: 1, 2]
+    repetidas = []
+    if not df_db.empty:
+        df_r_raw = df_db[df_db['quantity'] > 1].copy()
+        df_r_raw['orden'] = df_r_raw['team_code'].apply(lambda x: ORDEN_EQUIPOS.index(x))
+        df_r_raw = df_r_raw.sort_values(['orden', 'sticker_code'])
+        
+        for _, row in df_r_raw.iterrows():
+            q_libre = (row['quantity'] - 1) - (row['reserved'] if quitar_apartados else 0)
+            if q_libre > 0:
+                repetidas.append({
+                    "Selección": row['team_code'], 
+                    "Código": row['sticker_code'], 
+                    "Cantidad Extra": int(q_libre),
+                    "Estado": "Solo Libres" if quitar_apartados else "Todas"
+                })
+    df_r = pd.DataFrame(repetidas)
+
+    # Botones de Exportación[cite: 1]
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🚩 Mis Faltantes")
+        st.dataframe(df_f, use_container_width=True)
+        st.download_button("Descargar Faltantes (CSV)", df_f.to_csv(index=False), "faltantes.csv", "text/csv")
+        
+    with col2:
+        st.subheader("💎 Mis Repetidas")
+        st.dataframe(df_r, use_container_width=True)
+        st.download_button("Descargar Repetidas (CSV)", df_r.to_csv(index=False), "repetidas.csv", "text/csv")
+    
+    st.divider()
+    st.subheader("📦 Exportar Todo (Excel)")
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_f.to_excel(writer, sheet_name='Faltantes', index=False)
+        df_r.to_excel(writer, sheet_name='Repetidas', index=False)
+    
+    st.download_button(
+        label="Descargar Álbum Completo (.xlsx)",
+        data=buffer.getvalue(),
+        file_name="Mi_Album_Panini_2026.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 
 def vista_ajustes():
     st.title("⚙️ Ajustes")
@@ -197,14 +243,11 @@ def vista_ajustes():
         st.rerun()
 
 # --- NAVEGACIÓN ---
-# Intentar recuperar sesión existente de Supabase al cargar la app
 if st.session_state.user is None:
     try:
         session = supabase.auth.get_session()
-        if session and session.user:
-            st.session_state.user = session.user
-    except:
-        pass
+        if session and session.user: st.session_state.user = session.user
+    except: pass
 
 if st.session_state.user is None:
     login_seccion()
