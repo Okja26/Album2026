@@ -31,25 +31,34 @@ if 'user' not in st.session_state: st.session_state.user = None
 if 'carrito_recibir' not in st.session_state: st.session_state.carrito_recibir = []
 if 'carrito_entregar' not in st.session_state: st.session_state.carrito_entregar = []
 
-# --- FUNCIONES DE AUTENTICACIÓN (CORREGIDAS) ---
-def callback_login(email, password):
-    try:
-        res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-        if res.user:
-            st.session_state.user = res.user
-            st.rerun()
-    except:
-        st.sidebar.error("Credenciales incorrectas.")
+# --- FUNCIONES DE AUTENTICACIÓN ---
+def callback_login():
+    email = st.session_state.get("email_input")
+    password = st.session_state.get("pass_input")
+    if email and password:
+        try:
+            res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+            if res.user:
+                st.session_state.user = res.user
+                if "login_error" in st.session_state: del st.session_state.login_error
+            else:
+                st.session_state.login_error = "Credenciales incorrectas."
+        except:
+            st.session_state.login_error = "Error de conexión con el servidor."
 
-def callback_signup(email, password):
-    try:
-        res = supabase.auth.sign_up({"email": email, "password": password})
-        if res.user:
-            st.success("🎉 ¡Registro exitoso!")
-            st.session_state.user = res.user
-            st.rerun()
-    except:
-        st.sidebar.error("Error al registrar cuenta[cite: 1].")
+def callback_signup():
+    email = st.session_state.get("email_input")
+    password = st.session_state.get("pass_input")
+    if email and password:
+        try:
+            res = supabase.auth.sign_up({"email": email, "password": password})
+            if res.user:
+                st.session_state.user = res.user
+                st.success("¡Registro exitoso!")
+            else:
+                st.session_state.login_error = "No se pudo crear la cuenta."
+        except:
+            st.session_state.login_error = "Error al registrar."
 
 # --- UTILIDADES ---
 def obtener_codigos_por_equipo(sigla):
@@ -86,15 +95,19 @@ def guardar_apartado(cod, delta, nombre=None, reset_all=False):
 # --- VISTAS ---
 def login_seccion():
     st.title("👋 ¡Bienvenido a tu Panini Tracker!")
-    st.markdown("Inicia sesión para sincronizar tu álbum.")
+    st.markdown("Inicia sesión para sincronizar tu álbum y gestionar tus apartados.")
+    
+    if "login_error" in st.session_state:
+        st.sidebar.error(st.session_state.login_error)
+
     tipo = st.sidebar.radio("¿Qué deseas hacer?", ["Iniciar Sesión", "Registrarse"])
-    email = st.sidebar.text_input("Correo electrónico")
-    password = st.sidebar.text_input("Contraseña", type="password")
+    st.sidebar.text_input("Correo electrónico", key="email_input")
+    st.sidebar.text_input("Contraseña", type="password", key="pass_input")
     
     if tipo == "Iniciar Sesión":
-        st.sidebar.button("Entrar", on_click=callback_login, args=(email, password), use_container_width=True)
+        st.sidebar.button("Entrar", on_click=callback_login, use_container_width=True)
     else:
-        st.sidebar.button("Crear Cuenta", on_click=callback_signup, args=(email, password), use_container_width=True)
+        st.sidebar.button("Crear Cuenta", on_click=callback_signup, use_container_width=True)
 
 def vista_resumen():
     st.title("📊 Resumen del Álbum")
@@ -108,7 +121,7 @@ def vista_resumen():
 
 def vista_selecciones(sigla):
     st.title(f"⚽ Selección: {sigla}")
-    st.info("🔴 Falta | 🔵 Tengo | 🟢 Repetida[cite: 1]")
+    st.info("🔴 Falta | 🔵 Tengo | 🟢 Repetida")
     codigos = obtener_codigos_por_equipo(sigla)
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).eq("team_code", sigla).execute()
     inv = {item['sticker_code']: item['quantity'] for item in res.data}
@@ -126,7 +139,7 @@ def vista_repetidas():
     st.title("💎 Gestión de Repetidas")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).gt("quantity", 1).execute()
     if not res.data:
-        st.info("No tienes repetidas actualmente[cite: 1].")
+        st.info("No tienes repetidas actualmente.")
         return
     df = pd.DataFrame(res.data)
     df['orden_equipo'] = df['team_code'].apply(lambda x: ORDEN_EQUIPOS.index(x))
@@ -186,14 +199,14 @@ def vista_intercambios():
             actualizar_db(st.session_state.carrito_recibir, "sumar")
             actualizar_db(st.session_state.carrito_entregar, "restar")
             st.session_state.carrito_recibir, st.session_state.carrito_entregar = [], []
-            st.success("¡Álbum actualizado![cite: 1]")
+            st.success("¡Álbum actualizado!")
             st.rerun()
 
 def vista_exportar():
     st.title("📥 Exportar Datos")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     df_db = pd.DataFrame(res.data)
-    quitar_apartados = st.toggle("Ocultar estampas apartadas de la exportación", value=False)
+    quitar_apartados = st.toggle("Ocultar estampas apartadas", value=False)
     pegadas = set(df_db[df_db['quantity'] > 0]['sticker_code']) if not df_db.empty else set()
     faltantes = [{"Selección": t, "Código": c} for t in ORDEN_EQUIPOS for c in obtener_codigos_por_equipo(t) if c not in pegadas]
     df_f = pd.DataFrame(faltantes)
@@ -216,7 +229,7 @@ def vista_exportar():
     with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
         df_f.to_excel(writer, sheet_name='Faltantes', index=False)
         df_r.to_excel(writer, sheet_name='Repetidas', index=False)
-    st.download_button(label="Descargar Álbum Completo (.xlsx)", data=buffer.getvalue(), file_name="Mi_Album_2026.xlsx")
+    st.download_button(label="Descargar Excel (.xlsx)", data=buffer.getvalue(), file_name="Mi_Album_2026.xlsx")
 
 def vista_ajustes():
     st.title("⚙️ Ajustes")
@@ -225,12 +238,6 @@ def vista_ajustes():
         st.rerun()
 
 # --- NAVEGACIÓN ---
-if st.session_state.user is None:
-    try:
-        session = supabase.auth.get_session()
-        if session and session.user: st.session_state.user = session.user
-    except: pass
-
 if st.session_state.user is None:
     login_seccion()
 else:
