@@ -71,17 +71,18 @@ def obtener_orden_numerico(codigo):
     num = "".join([c for c in codigo if c.isdigit()])
     return int(num) if num else 0
 
+def ordenar_dataframe_panini(df):
+    if df.empty: return df
+    df['sel_idx'] = df['Selección'].apply(lambda x: ORDEN_SELECCIONES.index(x) if x in ORDEN_SELECCIONES else 999)
+    df['num_idx'] = df['Código'].apply(obtener_orden_numerico)
+    df_sorted = df.sort_values(by=['sel_idx', 'num_idx']).drop(columns=['sel_idx', 'num_idx'])
+    return df_sorted
+
 def preparar_excel(df_faltantes, df_repetidas):
     output = io.BytesIO()
-    def ordenar_df(df):
-        if df.empty: return df
-        df['sel_idx'] = df['Selección'].apply(lambda x: ORDEN_SELECCIONES.index(x) if x in ORDEN_SELECCIONES else 999)
-        df['num_idx'] = df['Código'].apply(obtener_orden_numerico)
-        df = df.sort_values(by=['sel_idx', 'num_idx']).drop(columns=['sel_idx', 'num_idx'])
-        return df
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        ordenar_df(df_faltantes).to_excel(writer, sheet_name='Faltantes', index=False)
-        ordenar_df(df_repetidas).to_excel(writer, sheet_name='Repetidas', index=False)
+        ordenar_dataframe_panini(df_faltantes).to_excel(writer, sheet_name='Faltantes', index=False)
+        ordenar_dataframe_panini(df_repetidas).to_excel(writer, sheet_name='Repetidas', index=False)
     return output.getvalue()
 
 # --- VISTAS ---
@@ -95,7 +96,6 @@ def mostrar_resumen():
         df_db = pd.DataFrame(res.data)
         tengo_df = df_db[df_db['quantity'] > 0]
 
-    # Calcular Selecciones Completadas
     completadas = 0
     for team, total_req in CONFIG_ALBUM.items():
         count_tengo = len(tengo_df[tengo_df['team_code'] == team])
@@ -140,41 +140,71 @@ def mostrar_resumen():
 
 def vista_intercambios():
     st.title("🤝 Centro de Intercambios")
-    t1, t2 = st.tabs(["🔄 Registro Visual", "🔍 Comparar con Amigo"])
+    t1, t2 = st.tabs(["🔄 Registro de Intercambio", "🔍 Comparar con Amigo"])
+    
     with t1:
         res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
         df_inv = pd.DataFrame(res.data) if res.data else pd.DataFrame()
-        cl, cr = st.columns(2)
-        with cl:
-            st.subheader("📥 Recibo")
-            eq_r = st.selectbox("Equipo", ORDEN_SELECCIONES, key="er")
-            nums = (['00'] + [f'FWC{i}' for i in range(1, 20)] if eq_r == 'FWC' else ([f'CC{i}' for i in range(1, 15)] if eq_r == 'CC' else [f'{eq_r}{i}' for i in range(1, 21)]))
-            cod_r = st.selectbox("Estampa", nums, key="cr")
-            if st.button("➕ Recibo"): st.session_state.carrito_recibir.append(cod_r); st.rerun()
+        
+        col_recibo, col_entrego = st.columns(2)
+        
+        # --- COLUMNA RECIBO (Doble método) ---
+        with col_recibo:
+            st.subheader("📥 Recibo (Me dan)")
+            with st.expander("Método 1: Selección manual", expanded=True):
+                eq_r = st.selectbox("Equipo", ORDEN_SELECCIONES, key="er")
+                nums_r = (['00'] + [f'FWC{i}' for i in range(1, 20)] if eq_r == 'FWC' else ([f'CC{i}' for i in range(1, 15)] if eq_r == 'CC' else [f'{eq_r}{i}' for i in range(1, 21)]))
+                cod_r = st.selectbox("Estampa", nums_r, key="cr")
+                if st.button("➕ Añadir Selección", key="btn_r_sel"):
+                    st.session_state.carrito_recibir.append(cod_r); st.rerun()
+            
+            with st.expander("Método 2: Lista de códigos"):
+                man_r = st.text_input("Códigos (ej: ARG1, MEX5):", key="man_r")
+                if st.button("➕ Añadir Lista", key="btn_r_man"):
+                    st.session_state.carrito_recibir.extend([x.strip().upper() for x in man_r.split(",") if x]); st.rerun()
+
             for i, item in enumerate(st.session_state.carrito_recibir):
                 ct, cd = st.columns([4, 1])
                 ct.markdown(f'<span style="background:#14A8FD; color:white; padding:5px 10px; border-radius:15px; display:inline-block; margin:2px;">✅ {item}</span>', unsafe_allow_html=True)
                 if cd.button("🗑️", key=f"dr_{i}"): st.session_state.carrito_recibir.pop(i); st.rerun()
-        with cr:
-            st.subheader("📤 Entrego")
+
+        # --- COLUMNA ENTREGO (Doble método + Apartados) ---
+        with col_entrego:
+            st.subheader("📤 Entrego (Yo doy)")
+            with st.expander("Método 1: Selección manual", expanded=True):
+                eq_e = st.selectbox("Equipo", ORDEN_SELECCIONES, key="ee")
+                nums_e = (['00'] + [f'FWC{i}' for i in range(1, 20)] if eq_e == 'FWC' else ([f'CC{i}' for i in range(1, 15)] if eq_e == 'CC' else [f'{eq_e}{i}' for i in range(1, 21)]))
+                cod_e = st.selectbox("Estampa", nums_e, key="ce")
+                if st.button("➕ Añadir Selección", key="btn_e_sel"):
+                    st.session_state.carrito_entregar.append(cod_e); st.rerun()
+
+            with st.expander("Método 2: Lista de códigos"):
+                man_e = st.text_input("Códigos (ej: BRA2, GER19):", key="man_e")
+                if st.button("➕ Añadir Lista", key="btn_e_man"):
+                    st.session_state.carrito_entregar.extend([x.strip().upper() for x in man_e.split(",") if x]); st.rerun()
+
             if not df_inv.empty and 'reserved_to' in df_inv.columns:
                 amigos = [a for a in df_inv['reserved_to'].unique() if a]
                 if amigos:
+                    st.divider()
                     amigo_sel = st.selectbox("Cargar apartados de:", amigos)
-                    if st.button(f"Cargar todas las de {amigo_sel}"):
+                    if st.button(f"Cargar apartados de {amigo_sel}"):
                         st.session_state.carrito_entregar.extend(df_inv[df_inv['reserved_to'] == amigo_sel]['sticker_code'].tolist()); st.rerun()
-            man = st.text_input("Añadir manual (comas):")
-            if st.button("Añadir Lista"):
-                st.session_state.carrito_entregar.extend([x.strip().upper() for x in man.split(",") if x]); st.rerun()
+
             for i, item in enumerate(st.session_state.carrito_entregar):
                 ct, cd = st.columns([4, 1])
                 ct.markdown(f'<span style="background:#FF4B4B; color:white; padding:5px 10px; border-radius:15px; display:inline-block; margin:2px;">💎 {item}</span>', unsafe_allow_html=True)
                 if cd.button("🗑️", key=f"de_{i}"): st.session_state.carrito_entregar.pop(i); st.rerun()
+
         st.divider()
-        if st.button("🚀 Confirmar Intercambio", use_container_width=True):
-            actualizar_db(st.session_state.carrito_recibir, "sumar")
-            actualizar_db(st.session_state.carrito_entregar, "restar")
-            st.session_state.carrito_recibir, st.session_state.carrito_entregar = [], []; st.success("¡Actualizado!"); st.rerun()
+        if st.button("🚀 Confirmar e Impactar Álbum", use_container_width=True):
+            if not st.session_state.carrito_recibir and not st.session_state.carrito_entregar:
+                st.error("Los carritos están vacíos.")
+            else:
+                actualizar_db(st.session_state.carrito_recibir, "sumar")
+                actualizar_db(st.session_state.carrito_entregar, "restar")
+                st.session_state.carrito_recibir, st.session_state.carrito_entregar = [], []
+                st.success("¡El álbum ha sido actualizado correctamente!"); st.rerun()
 
     with t2:
         st.subheader("🔍 Comparar con Amigo")
@@ -208,14 +238,23 @@ def mostrar_exportar():
         rango = (['00'] + [f'FWC{i}' for i in range(1, 20)] if team == 'FWC' else ([f'CC{i}' for i in range(1, 15)] if team == 'CC' else [f'{team}{i}' for i in range(1, 21)]))
         for c in rango:
             if c not in pegadas: faltantes.append({"Selección": team, "Código": c})
-    df_f = pd.DataFrame(faltantes)
+    df_f = ordenar_dataframe_panini(pd.DataFrame(faltantes))
     df_r = df_db[df_db['quantity'] > 1].copy() if not df_db.empty else pd.DataFrame()
     if not df_r.empty:
         df_r['Cantidad Extra'] = df_r['quantity'] - 1
         df_r = df_r[['team_code', 'sticker_code', 'Cantidad Extra']].rename(columns={'team_code': 'Selección', 'sticker_code': 'Código'})
     else: df_r = pd.DataFrame(columns=['Selección', 'Código', 'Cantidad Extra'])
+    df_r = ordenar_dataframe_panini(df_r)
     excel_data = preparar_excel(df_f, df_r)
     st.download_button(label="📊 Descargar Excel Completo", data=excel_data, file_name="Album_Danna.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    st.divider()
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🚩 Mis Faltantes")
+        st.dataframe(df_f, use_container_width=True, height=400)
+    with col2:
+        st.subheader("💎 Mis Repetidas")
+        st.dataframe(df_r, use_container_width=True, height=400)
 
 # --- NAVEGACIÓN ---
 if st.session_state.user is None:
@@ -233,6 +272,7 @@ if st.session_state.user is None:
             st.session_state.user = res.user; st.rerun()
         except: st.error("Error")
 else:
+    st.sidebar.write(f"👤 {st.session_state.user.email}")
     st.sidebar.button("Cerrar Sesión", on_click=callback_logout)
     menu = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios", "📥 Exportar", "⚙️ Ajustes"])
     if menu == "🏠 Resumen": mostrar_resumen()
