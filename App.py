@@ -135,33 +135,187 @@ def vista_selecciones(sigla):
             if ca.button("➖", key=f"m_{cod}"): actualizar_db([cod], "restar"); st.rerun()
             if cb.button("➕", key=f"p_{cod}"): actualizar_db([cod], "sumar"); st.rerun()
 
-def vista_repetidas():
-    st.title("💎 Gestión de Repetidas")
-    res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).gt("quantity", 1).execute()
-    if not res.data:
-        st.info("No tienes repetidas actualmente.")
-        return
-    df = pd.DataFrame(res.data)
-    df['orden_equipo'] = df['team_code'].apply(lambda x: ORDEN_EQUIPOS.index(x))
-    df = df.sort_values(['orden_equipo', 'sticker_code'])
-    for equipo in df['team_code'].unique():
-        with st.container():
-            st.subheader(f"⚽ {equipo}")
-            stickers_equipo = df[df['team_code'] == equipo]
-            for _, row in stickers_equipo.iterrows():
-                with st.expander(f"Estampa {row['sticker_code']} (Libres: {int((row['quantity']-1)-(row['reserved'] or 0))})"):
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        dest = str(row['reserved_to']) if row['reserved_to'] else "Disponible"
-                        st.write(f"**Estado:** {'Apartada para ' + dest if row['reserved'] > 0 else dest}")
-                    with c2:
-                        nombre = st.text_input("Apartar para:", key=f"n_{row['sticker_code']}", value=row['reserved_to'] or "")
-                        b1, b2, b3 = st.columns(3)
-                        if b1.button("📌 +1", key=f"a_{row['sticker_code']}"): guardar_apartado(row['sticker_code'], 1, nombre)
-                        if b2.button("🗑️ -1", key=f"l_{row['sticker_code']}"): guardar_apartado(row['sticker_code'], -1)
-                        if b3.button("❌ Todo", key=f"reset_{row['sticker_code']}"): guardar_apartado(row['sticker_code'], 0, reset_all=True)
-            st.divider()
+def mostrar_comparador_amigo():
+    st.subheader("🔍 Comparador Inteligente de Estampas")
+    st.write("Ingresa el código de un amigo para ver qué cambios pueden hacer.")
+    
+    # Mostrar tu propio ID para que sea fácil copiarlo y pasarlo
+    st.info(f"Tu código para compartir: `{st.session_state.user.id}`")
+    
+    id_amigo = st.text_input("Código del amigo:", placeholder="Pega aquí el UUID de tu amigo")
+    
+    if id_amigo:
+        if id_amigo == st.session_state.user.id:
+            st.warning("⚠️ Este es tu propio código. ¡Busca el de un amigo!")
+        else:
+            try:
+                # 1. Obtener MIS datos (Mis repetidas y lo que me falta)
+                res_yo = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
+                df_yo = pd.DataFrame(res_yo.data) if res_yo.data else pd.DataFrame(columns=['sticker_code', 'quantity'])
+                
+                # Mis repetidas: las que tienen cantidad > 1
+                mis_repetidas = set(df_yo[df_yo['quantity'] > 1]['sticker_code'])
+                # Lo que ya tengo (para saber qué me falta)
+                mis_tengo = set(df_yo[df_yo['quantity'] > 0]['sticker_code'])
 
+                # 2. Obtener los datos del AMIGO
+                res_amigo = supabase.table("user_stickers").select("*").eq("user_id", id_amigo).execute()
+                
+                if not res_amigo.data:
+                    st.error("❌ No se encontraron datos para ese código. Verifica que tu amigo haya iniciado sesión al menos una vez.")
+                else:
+                    df_amigo = pd.DataFrame(res_amigo.data)
+                    
+                    # Repetidas del amigo
+                    amigo_repetidas = set(df_amigo[df_amigo['quantity'] > 1]['sticker_code'])
+                    # Lo que el amigo ya tiene
+                    amigo_tengo = set(df_amigo[df_amigo['quantity'] > 0]['sticker_code'])
+
+                    # 3. Lógica de cruce (Match)
+                    # Lo que yo tengo repetido y a él LE FALTA
+                    le_sirven = [r for r in mis_repetidas if r not in amigo_tengo]
+                    
+                    # Lo que él tiene repetido y a mí ME FALTA
+                    me_sirven = [r for r in amigo_repetidas if r not in mis_tengo]
+
+                    st.divider()
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.markdown("### 🎁 Él te puede dar")
+                        st.caption("Repetidas de él que tú no tienes")
+                        if me_sirven:
+                            for s in sorted(me_sirven):
+                                st.success(f"✅ **{s}**")
+                        else:
+                            st.write("Nada por ahora... 😢")
+
+                    with col2:
+                        st.markdown("### 🤲 Tú le puedes dar")
+                        st.caption("Tus repetidas que a él le faltan")
+                        if le_sirven:
+                            for s in sorted(le_sirven):
+                                st.warning(f"💎 **{s}**")
+                        else:
+                            st.write("No tienes nada que le sirva. 💔")
+                            
+                    if me_sirven and le_sirven:
+                        st.balloons()
+                        st.info("💡 ¡Hay match de intercambio! Ambos tienen algo que el otro necesita.")
+
+            except Exception as e:
+                st.error(f"Ocurrió un error al comparar: {e}")
+
+def vista_intercambios():
+    st.title("🤝 Centro de Intercambios")
+    st.write("Gestiona tus cambios: carga tus apartados automáticamente o añade estampas manualmente.")
+    
+    # Pestañas para separar el registro de la comparación
+    t1, t2 = st.tabs(["🔄 Registro de Intercambio", "🔍 Comparar con Amigo"])
+    
+    with t1:
+        # 1. Consultar inventario actual para manejar los apartados y nombres de amigos
+        res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
+        df_inv = pd.DataFrame(res.data) if res.data else pd.DataFrame()
+        
+        cl, cr = st.columns(2)
+        
+        # --- COLUMNA IZQUIERDA: RECIBO (ENTRAN AL ÁLBUM) ---
+        with cl:
+            st.subheader("📥 Recibo")
+            st.caption("Estampas que te dieron y vas a pegar")
+            
+            # Selectores para añadir una por una
+            c_eq, c_num, c_add = st.columns([2, 2, 1])
+            with c_eq:
+                # Usamos la lista de equipos que ya tienes definida
+                eq_r = st.selectbox("Equipo", list(CONFIG_ALBUM.keys()), key="eq_r_view")
+            with c_num:
+                # Generación dinámica de códigos según el equipo
+                rango_r = (['00'] + [f'FWC{i}' for i in range(1, 20)] if eq_r == 'FWC' else 
+                          ([f'CC{i}' for i in range(1, 15)] if eq_r == 'CC' else [f'{eq_r}{i}' for i in range(1, 21)]))
+                cod_r = st.selectbox("Número", rango_r, key="cod_r_view")
+            with c_add:
+                st.write(" ") # Espaciador visual
+                if st.button("➕", key="btn_add_rec"):
+                    st.session_state.carrito_recibir.append(cod_r)
+                    st.rerun()
+
+            st.write("---")
+            # Mostrar la lista de recibidas como "tarjetas"
+            if st.session_state.carrito_recibir:
+                for i, item in enumerate(st.session_state.carrito_recibir):
+                    col_txt, col_del = st.columns([4, 1])
+                    col_txt.markdown(f'<span style="background:#14A8FD; color:white; padding:5px 12px; border-radius:15px; display:inline-block; margin:2px; font-weight:bold;">✅ {item}</span>', unsafe_allow_html=True)
+                    if col_del.button("🗑️", key=f"del_r_{i}"):
+                        st.session_state.carrito_recibir.pop(i)
+                        st.rerun()
+            else:
+                st.info("Lista de recibo vacía.")
+
+        # --- COLUMNA DERECHA: ENTREGO (SALEN DEL ÁLBUM) ---
+        with cr:
+            st.subheader("📤 Entrego")
+            st.caption("Estampas que diste o tenías apartadas")
+            
+            # Lógica especial de apartados (Liz, etc.)
+            if not df_inv.empty and 'reserved_to' in df_inv.columns:
+                # Obtenemos nombres únicos de personas que tienen apartados
+                amigos_con_apartado = [a for a in df_inv['reserved_to'].unique() if a]
+                if amigos_con_apartado:
+                    st.write("**Cargar Apartados:**")
+                    c_amigo, c_btn_am = st.columns([3, 1])
+                    amigo_sel = c_amigo.selectbox("Amigo(a)", amigos_con_apartado, key="sel_amigo_res")
+                    if c_btn_am.button("Cargar"):
+                        estampas_apartadas = df_inv[df_inv['reserved_to'] == amigo_sel]['sticker_code'].tolist()
+                        st.session_state.carrito_entregar.extend(estampas_apartadas)
+                        st.rerun()
+            
+            st.write("**Entrada Manual:**")
+            lista_txt = st.text_input("Códigos separados por comas:", placeholder="ej: MEX10, ARG1, 00")
+            if st.button("Añadir a lista"):
+                manuales = [x.strip().upper() for x in lista_txt.split(",") if x]
+                st.session_state.carrito_entregar.extend(manuales)
+                st.rerun()
+
+            st.write("---")
+            # Mostrar la lista de entregadas como "tarjetas"
+            if st.session_state.carrito_entregar:
+                for i, item in enumerate(st.session_state.carrito_entregar):
+                    col_txt, col_del = st.columns([4, 1])
+                    col_txt.markdown(f'<span style="background:#FF4B4B; color:white; padding:5px 12px; border-radius:15px; display:inline-block; margin:2px; font-weight:bold;">💎 {item}</span>', unsafe_allow_html=True)
+                    if col_del.button("🗑️", key=f"del_e_{i}"):
+                        st.session_state.carrito_entregar.pop(i)
+                        st.rerun()
+            else:
+                st.info("Lista de entrega vacía.")
+
+        # --- BOTÓN DE ACCIÓN FINAL ---
+        st.divider()
+        if st.button("🚀 CONFIRMAR INTERCAMBIO", use_container_width=True):
+            if not st.session_state.carrito_recibir and not st.session_state.carrito_entregar:
+                st.error("No hay estampas en ninguna lista para procesar.")
+            else:
+                with st.spinner("Sincronizando inventario con Supabase..."):
+                    # 1. Sumar las recibidas
+                    if st.session_state.carrito_recibir:
+                        actualizar_db(st.session_state.carrito_recibir, "sumar")
+                    
+                    # 2. Restar las entregadas
+                    if st.session_state.carrito_entregar:
+                        actualizar_db(st.session_state.carrito_entregar, "restar")
+                    
+                    # 3. Limpiar estados y notificar
+                    st.session_state.carrito_recibir = []
+                    st.session_state.carrito_entregar = []
+                    st.success("¡Álbum actualizado con éxito!")
+                    st.balloons()
+                    st.rerun()
+
+    with t2:
+        # Llamamos a la función de comparación que ya tienes
+        mostrar_comparador_amigo()
+        
 def vista_intercambios():
     st.title("🤝 Centro de Intercambios")
     t1, t2 = st.tabs(["🔄 Registro", "🔍 Comparar"])
