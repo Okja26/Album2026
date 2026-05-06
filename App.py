@@ -43,24 +43,19 @@ GRUPOS = {
 
 COLORS = {"Falta": "#FF4B4B", "Tengo": "#14A8FD", "Repetida": "#51D153"}
 
-st.set_page_config(page_title="Danna's Panini Hub", layout="wide")
+st.set_page_config(page_title="Panini Hub", layout="wide")
 
 # --- FUNCIONES DE LÓGICA ---
 
 def actualizar_db(lista_codigos, operacion):
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
     inv = {item['sticker_code']: (item['quantity'], item['team_code']) for item in res.data}
-    
     for cod in lista_codigos:
         equipo_sigla = "".join([c for c in cod if c.isalpha()]) if cod != '00' else 'FWC'
         actual, team = inv.get(cod, (0, equipo_sigla))
         nueva_cant = actual + 1 if operacion == "sumar" else max(0, actual - 1)
-        
         supabase.table("user_stickers").upsert({
-            "user_id": st.session_state.user.id,
-            "sticker_code": cod,
-            "team_code": team,
-            "quantity": nueva_cant
+            "user_id": st.session_state.user.id, "sticker_code": cod, "team_code": team, "quantity": nueva_cant
         }, on_conflict="user_id,sticker_code").execute()
 
 def callback_logout():
@@ -71,22 +66,9 @@ def callback_logout():
 
 # --- VISTAS ---
 
-def login_seccion():
-    st.title("👋 Panini Tracker")
-    st.sidebar.title("🔐 Acceso")
-    email = st.sidebar.text_input("Correo", key="email_txt")
-    passw = st.sidebar.text_input("Contraseña", type="password", key="pass_txt")
-    if st.sidebar.button("Entrar", use_container_width=True):
-        try:
-            res = supabase.auth.sign_in_with_password({"email": email, "password": passw})
-            st.session_state.user = res.user
-            st.rerun()
-        except: st.error("Error en credenciales")
-
 def mostrar_resumen():
-    st.title("📊 Estadísticas Detalladas")
+    st.title("📊 Estadísticas de Mi Álbum")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
-    
     if not res.data:
         tengo_df = pd.DataFrame(columns=['team_code', 'sticker_code', 'quantity'])
     else:
@@ -102,31 +84,30 @@ def mostrar_resumen():
     c3.metric("Faltantes", total_album - cant_tengo)
     
     st.divider()
-    modo = st.radio("Analizar por:", ["Grupos", "Selección Específica"], horizontal=True)
+    modo = st.radio("Ver estadísticas por:", ["Grupos", "Selección Específica"], horizontal=True)
     
     if modo == "Grupos":
-        op_g = st.selectbox("Selecciona Grupo", list(GRUPOS.keys()))
+        op_g = st.selectbox("Selecciona un Grupo:", list(GRUPOS.keys()))
         equipos = GRUPOS[op_g]
         t_g = len(tengo_df[tengo_df['team_code'].isin(equipos)])
         tot_g = sum([CONFIG_ALBUM.get(e, 20) + (1 if e=='FWC' else 0) for e in equipos])
         
-        col_p, col_i = st.columns([2, 1])
-        with col_p:
+        cp, ci = st.columns([2, 1])
+        with cp:
             fig = px.pie(names=["Tengo", "Faltan"], values=[t_g, tot_g - t_g], hole=0.5,
-                         color_discrete_sequence=[COLORS["Tengo"], COLORS["Falta"]], title=f"Avance {op_g}")
+                         color_discrete_sequence=[COLORS["Tengo"], COLORS["Falta"]], title=f"Progreso {op_g}")
             st.plotly_chart(fig, use_container_width=True)
-        with col_i:
+        with ci:
             for e in equipos:
                 count = len(tengo_df[tengo_df['team_code'] == e])
                 total_e = CONFIG_ALBUM.get(e, 20) + (1 if e=='FWC' else 0)
-                st.write(f"**{e}:** {count}/{total_e}")
-
+                st.write(f"- {e}: {count}/{total_e} ({(count/total_e)*100:.0f}%)")
     else:
-        op_s = st.selectbox("Selecciona Selección", list(CONFIG_ALBUM.keys()))
+        op_s = st.selectbox("Selecciona una Selección:", list(CONFIG_ALBUM.keys()))
         t_s = len(tengo_df[tengo_df['team_code'] == op_s])
-        tot_s = CONFIG_ALBUM.get(op_s, 20) + (1 if op_s=='FWC' else 0)
-        fig = px.pie(names=["Tengo", "Faltan"], values=[t_s, tot_s - t_s], hole=0.5,
-                     color_discrete_sequence=[COLORS["Tengo"], COLORS["Falta"]], title=f"Avance {op_s}")
+        total_s = CONFIG_ALBUM.get(op_s, 20) + (1 if op_s=='FWC' else 0)
+        fig = px.pie(names=["Tengo", "Faltan"], values=[t_s, total_s - t_s], hole=0.5,
+                     color_discrete_sequence=[COLORS["Tengo"], COLORS["Falta"]], title=f"Progreso {op_s}")
         st.plotly_chart(fig)
 
 def vista_intercambios():
@@ -141,11 +122,10 @@ def vista_intercambios():
         with cl:
             st.subheader("📥 Recibo")
             eq_r = st.selectbox("Equipo", list(CONFIG_ALBUM.keys()), key="er")
-            nums = (['00'] + [f'FWC{i}' for i in range(1, 20)] if eq_r == 'FWC' else 
-                    ([f'CC{i}' for i in range(1, 15)] if eq_r == 'CC' else [f'{eq_r}{i}' for i in range(1, 21)]))
-            cod_r = st.selectbox("Estampa", nums, key="cr")
-            if st.button("Añadir a Recibo"): st.session_state.carrito_recibir.append(cod_r); st.rerun()
-            
+            n_r = (['00'] + [f'FWC{i}' for i in range(1, 20)] if eq_r == 'FWC' else 
+                   ([f'CC{i}' for i in range(1, 15)] if eq_r == 'CC' else [f'{eq_r}{i}' for i in range(1, 21)]))
+            cod_r = st.selectbox("Estampa", n_r, key="cr")
+            if st.button("➕", key="add_r"): st.session_state.carrito_recibir.append(cod_r); st.rerun()
             for i, item in enumerate(st.session_state.carrito_recibir):
                 ct, cd = st.columns([4, 1])
                 ct.markdown(f'<span style="background:#14A8FD; color:white; padding:5px 10px; border-radius:15px; display:inline-block; margin:2px;">✅ {item}</span>', unsafe_allow_html=True)
@@ -157,80 +137,104 @@ def vista_intercambios():
                 amigos = [a for a in df_inv['reserved_to'].unique() if a]
                 if amigos:
                     amigo_sel = st.selectbox("Cargar apartados de:", amigos)
-                    if st.button(f"Cargar de {amigo_sel}"):
+                    if st.button(f"Cargar todas las de {amigo_sel}"):
                         st.session_state.carrito_entregar.extend(df_inv[df_inv['reserved_to'] == amigo_sel]['sticker_code'].tolist())
                         st.rerun()
             
-            man = st.text_input("Manual (comas):")
-            if st.button("Añadir Manual"):
+            man = st.text_input("Añadir manual (ej: ARG1, MEX5):")
+            if st.button("Añadir"):
                 st.session_state.carrito_entregar.extend([x.strip().upper() for x in man.split(",") if x]); st.rerun()
-            
             for i, item in enumerate(st.session_state.carrito_entregar):
                 ct, cd = st.columns([4, 1])
                 ct.markdown(f'<span style="background:#FF4B4B; color:white; padding:5px 10px; border-radius:15px; display:inline-block; margin:2px;">💎 {item}</span>', unsafe_allow_html=True)
                 if cd.button("🗑️", key=f"de_{i}"): st.session_state.carrito_entregar.pop(i); st.rerun()
 
+        st.divider()
         if st.button("🚀 Confirmar Intercambio", use_container_width=True):
             actualizar_db(st.session_state.carrito_recibir, "sumar")
             actualizar_db(st.session_state.carrito_entregar, "restar")
             st.session_state.carrito_recibir, st.session_state.carrito_entregar = [], []
-            st.success("¡Hecho!"); st.rerun()
+            st.success("¡Álbum actualizado con éxito!"); st.rerun()
 
     with t2:
-        st.subheader("🔍 Comparador de Álbumes")
+        st.subheader("🔍 Comparador de Amigos")
         st.info(f"Tu ID: `{st.session_state.user.id}`")
-        id_amigo = st.text_input("ID del Amigo:")
+        id_amigo = st.text_input("Ingresa el código del amigo:")
         if id_amigo and id_amigo != st.session_state.user.id:
             try:
-                # Mis datos
                 res_yo = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
                 df_yo = pd.DataFrame(res_yo.data) if res_yo.data else pd.DataFrame()
                 mis_tengo = set(df_yo[df_yo['quantity'] > 0]['sticker_code']) if not df_yo.empty else set()
                 mis_rep = set(df_yo[df_yo['quantity'] > 1]['sticker_code']) if not df_yo.empty else set()
                 
-                # Datos amigo
-                res_am = supabase.table("user_stickers").select("*").eq("user_id", id_amigo).execute()
-                df_am = pd.DataFrame(res_am.data)
-                am_tengo = set(df_am[df_am['quantity'] > 0]['sticker_code'])
-                am_rep = set(df_am[df_am['quantity'] > 1]['sticker_code'])
+                res_amigo = supabase.table("user_stickers").select("*").eq("user_id", id_amigo).execute()
+                df_amigo = pd.DataFrame(res_amigo.data)
+                am_tengo = set(df_amigo[df_amigo['quantity'] > 0]['sticker_code'])
+                am_rep = set(df_amigo[df_amigo['quantity'] > 1]['sticker_code'])
                 
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.write("🎁 Él te da:")
+                cme, cle = st.columns(2)
+                with cme:
+                    st.write("🎁 Él tiene para darte:")
                     for s in [x for x in am_rep if x not in mis_tengo]: st.success(f"✅ {s}")
-                with c2:
-                    st.write("🤲 Tú le das:")
+                with cle:
+                    st.write("🤲 Tú tienes para darle:")
                     for s in [x for x in mis_rep if x not in am_tengo]: st.warning(f"💎 {s}")
             except: st.error("ID no válido")
 
 def mostrar_exportar():
-    st.title("📥 Exportar")
+    st.title("📥 Exportar Listas (Excel/CSV)")
     res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).execute()
-    df = pd.DataFrame(res.data)
-    pegadas = set(df[df['quantity'] > 0]['sticker_code']) if not df.empty else set()
-    faltantes = []
-    for t, tot in CONFIG_ALBUM.items():
-        r = (['00'] + [f'FWC{i}' for i in range(1, 20)] if t == 'FWC' else 
-             ([f'CC{i}' for i in range(1, 15)] if t == 'CC' else [f'{t}{i}' for i in range(1, 21)]))
-        for c in r:
-            if c not in pegadas: faltantes.append({"Selección": t, "Código": c})
+    df_db = pd.DataFrame(res.data)
     
-    st.download_button("Descargar Faltantes (CSV)", pd.DataFrame(faltantes).to_csv(index=False), "faltantes.csv")
-    rep = df[df['quantity'] > 1].copy() if not df.empty else pd.DataFrame()
-    if not rep.empty:
-        rep['Extra'] = rep['quantity'] - 1
-        st.download_button("Descargar Repetidas (CSV)", rep[['team_code', 'sticker_code', 'Extra']].to_csv(index=False), "repetidas.csv")
+    pegadas = set(df_db[df_db['quantity'] > 0]['sticker_code']) if not df_db.empty else set()
+    faltantes = []
+    for team, total in CONFIG_ALBUM.items():
+        rango = (['00'] + [f'FWC{i}' for i in range(1, 20)] if team == 'FWC' else 
+                 ([f'CC{i}' for i in range(1, 15)] if team == 'CC' else [f'{team}{i}' for i in range(1, 21)]))
+        for c in rango:
+            if c not in pegadas: faltantes.append({"Selección": team, "Código": c})
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("🚩 Mis Faltantes")
+        df_f = pd.DataFrame(faltantes)
+        st.dataframe(df_f, use_container_width=True)
+        st.download_button("Descargar Faltantes (CSV)", df_f.to_csv(index=False), "mis_faltantes.csv", "text/csv")
+    with col2:
+        st.subheader("💎 Mis Repetidas")
+        df_r = df_db[df_db['quantity'] > 1].copy() if not df_db.empty else pd.DataFrame()
+        if not df_r.empty:
+            df_r['Cantidad Extra'] = df_r['quantity'] - 1
+            df_r = df_r[['team_code', 'sticker_code', 'Cantidad Extra']].rename(columns={'team_code': 'Selección', 'sticker_code': 'Código'})
+        st.dataframe(df_r, use_container_width=True)
+        st.download_button("Descargar Repetidas (CSV)", df_r.to_csv(index=False), "mis_repetidas.csv", "text/csv")
 
-# --- NAVEGACIÓN ---
+# --- NAVEGACIÓN PRINCIPAL ---
 if st.session_state.user is None:
-    login_seccion()
+    st.title("👋 Panini Hub")
+    st.sidebar.title("🔐 Acceso")
+    email = st.sidebar.text_input("Correo", key="email_txt")
+    passw = st.sidebar.text_input("Contraseña", type="password", key="pass_txt")
+    if st.sidebar.button("Entrar", use_container_width=True):
+        try:
+            res = supabase.auth.sign_in_with_password({"email": email, "password": passw})
+            st.session_state.user = res.user
+            st.rerun()
+        except: st.error("Error de acceso")
+    if st.sidebar.button("Registrarse"):
+        try:
+            res = supabase.auth.sign_up({"email": email, "password": passw})
+            st.session_state.user = res.user
+            st.rerun()
+        except: st.error("Error al crear cuenta")
 else:
+    st.sidebar.write(f"👤 {st.session_state.user.email}")
     st.sidebar.button("Cerrar Sesión", on_click=callback_logout)
     menu = st.sidebar.radio("Menú", ["🏠 Resumen", "🚩 Selecciones", "🤝 Intercambios", "📥 Exportar", "⚙️ Ajustes"])
     
     if menu == "🏠 Resumen": mostrar_resumen()
     elif menu == "🚩 Selecciones":
-        sigla = st.sidebar.selectbox("Selección", list(CONFIG_ALBUM.keys()))
+        sigla = st.sidebar.selectbox("Seleccionar Equipo", list(CONFIG_ALBUM.keys()))
         res = supabase.table("user_stickers").select("*").eq("user_id", st.session_state.user.id).eq("team_code", sigla).execute()
         inv = {item['sticker_code']: item['quantity'] for item in res.data}
         cods = (['00'] + [f'FWC{i}' for i in range(1, 20)] if sigla == 'FWC' else ([f'CC{i}' for i in range(1, 15)] if sigla == 'CC' else [f'{sigla}{i}' for i in range(1, 21)]))
@@ -239,11 +243,17 @@ else:
             cant = inv.get(c, 0)
             color = COLORS["Falta"] if cant == 0 else (COLORS["Tengo"] if cant == 1 else COLORS["Repetida"])
             with cols[i % 4]:
-                st.markdown(f'<div style="border:2px solid {color}; padding:10px; text-align:center;">{c}<br>Cant: {cant}</div>', unsafe_allow_html=True)
-                if st.button("➕", key=f"p_{c}"): actualizar_db([c], "sumar"); st.rerun()
-                if st.button("➖", key=f"m_{c}"): actualizar_db([c], "restar"); st.rerun()
+                st.markdown(f'<div style="border:3px solid {color}; border-radius:10px; padding:10px; text-align:center; background:rgba(255,255,255,0.05);"><h3>{c}</h3><p>Cant: {cant}</p></div>', unsafe_allow_html=True)
+                c1, c2 = st.columns(2)
+                if c1.button("➖", key=f"m_{c}"): actualizar_db([c], "restar"); st.rerun()
+                if c2.button("➕", key=f"p_{c}"): actualizar_db([c], "sumar"); st.rerun()
     elif menu == "🤝 Intercambios": vista_intercambios()
     elif menu == "📥 Exportar": mostrar_exportar()
     else:
         st.title("⚙️ Ajustes")
-        if st.button("Borrar Datos"): supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute(); st.rerun()
+        with st.form("pass"):
+            n = st.text_input("Nueva Contraseña", type="password")
+            if st.form_submit_button("Actualizar"):
+                supabase.auth.update_user({"password": n}); st.success("¡Listo!")
+        if st.button("Eliminar mis datos"):
+            supabase.table("user_stickers").delete().eq("user_id", st.session_state.user.id).execute(); st.rerun()
