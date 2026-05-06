@@ -46,7 +46,7 @@ GRUPOS = {
 
 COLORS = {"Falta": "#FF4B4B", "Tengo": "#14A8FD", "Repetida": "#51D153"}
 
-st.set_page_config(page_title="Danna's Panini Hub", layout="wide")
+st.set_page_config(page_title="Panini Hub", layout="wide")
 
 # --- FUNCIONES DE LÓGICA ---
 
@@ -246,7 +246,7 @@ def mostrar_exportar():
     else: df_r = pd.DataFrame(columns=['Selección', 'Código', 'Cantidad Extra'])
     df_r = ordenar_dataframe_panini(df_r)
     excel_data = preparar_excel(df_f, df_r)
-    st.download_button(label="📊 Descargar Excel Completo", data=excel_data, file_name="Album_Danna.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
+    st.download_button(label="📊 Descargar Excel Completo", data=excel_data, file_name="Album.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", use_container_width=True)
     st.divider()
     col1, col2 = st.columns(2)
     with col1:
