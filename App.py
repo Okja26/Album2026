@@ -33,15 +33,10 @@ CONFIG_ALBUM = {
 ORDEN_SELECCIONES = list(CONFIG_ALBUM.keys())
 
 GRUPOS = {
-    "Grupo A": ["QAT", "ECU", "SEN", "NED"],
-    "Grupo B": ["ENG", "IRN", "USA", "WAL"],
-    "Grupo C": ["ARG", "KSA", "MEX", "POL"],
-    "Grupo D": ["FRA", "AUS", "DEN", "TUN"],
-    "Grupo E": ["ESP", "CRC", "GER", "JPN"],
-    "Grupo F": ["BEL", "CAN", "MAR", "CRO"],
-    "Grupo G": ["BRA", "SRB", "SUI", "CMR"],
-    "Grupo H": ["POR", "GHA", "URU", "KOR"],
-    "Especiales": ["FWC", "CC"]
+    "Grupo A": ['MEX', 'RSA', 'KOR', 'CZE'],
+    "Grupo B": ['CAN', 'BIH', 'QAT', 'SUI'],
+    "Grupo C": ['BRA', 'MAR', 'HAI', 'SCO'],
+    "Grupo D": ['USA', 'PAR', 'AUS', 'TUR']
 }
 
 COLORS = {"Falta": "#FF4B4B", "Tengo": "#14A8FD", "Repetida": "#51D153"}
